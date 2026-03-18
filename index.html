@@ -129,6 +129,10 @@ function renderMenu(){
     html+='</div></div>';
   });
   document.getElementById('mainContent').innerHTML=html;
+  // Attach click handlers after DOM insertion
+  document.querySelectorAll('.add-btn').forEach(btn=>{
+    btn.addEventListener('click',function(){addCartById(this.dataset.id);});
+  });
 }
 
 function renderCard(item,slug){
@@ -144,8 +148,7 @@ function renderCard(item,slug){
       sHtml+='</div></div>';
     }
   }
-  const ij=JSON.stringify(JSON.stringify(item));
-  return '<div class="item-card" id="card-'+escH(item.id)+'">'+'<div class="item-top"><div class="item-emoji">'+(item.emoji||'🍕')+'</div>'+'<div class="item-info"><div class="item-name">'+escH(item.name)+'</div>'+'<div class="item-desc">'+escH(item.description)+'</div>'+'<div class="badges">'+(item.is_halal?'<span class="badge badge-halal">HALAL</span>':'')+(item.is_featured?'<span class="badge badge-featured">⭐ FEATURED</span>':'')+'</div>'+'</div></div>'+sHtml+'<div class="item-footer"><span class="item-price" id="pr-'+escH(item.id)+'">'+getDisplayPrice(p)+'</span>'+'<button class="add-btn" onclick="addCart('+ij+')">+</button></div></div>';
+  return '<div class="item-card" id="card-'+escH(item.id)+'">'+'<div class="item-top"><div class="item-emoji">'+(item.emoji||'🍕')+'</div>'+'<div class="item-info"><div class="item-name">'+escH(item.name)+'</div>'+'<div class="item-desc">'+escH(item.description)+'</div>'+'<div class="badges">'+(item.is_halal?'<span class="badge badge-halal">HALAL</span>':'')+(item.is_featured?'<span class="badge badge-featured">⭐ FEATURED</span>':'')+'</div>'+'</div></div>'+sHtml+'<div class="item-footer"><span class="item-price" id="pr-'+escH(item.id)+'">'+getDisplayPrice(p)+'</span>'+'<button class="add-btn" data-id="'+escH(item.id)+'">+</button></div></div>';
 }
 
 function selSize(btn){
@@ -158,8 +161,9 @@ function selSize(btn){
   if(it&&it.prices&&it.prices[sz]!==undefined)document.getElementById('pr-'+id).textContent='$'+Number(it.prices[sz]).toFixed(2);
 }
 
-function addCart(ij){
-  const item=JSON.parse(ij);
+function addCartById(itemId){
+  const item=menuData.items.find(i=>i.id===itemId);
+  if(!item)return;
   const card=document.getElementById('card-'+item.id);
   let sz=null,pr=getFirstPrice(item.prices);
   if(card){
