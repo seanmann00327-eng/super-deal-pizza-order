@@ -19,7 +19,7 @@
   <button class="order-type-btn" id="deliveryBtn" onclick="setOrderType('delivery')">🚗 Delivery</button>
 </div>
 <div class="layout">
-  <nav class="sidebar"><h3>Menu</h3><div id="catLinks"></div></nav>
+  <nav class="sidebar"><h3>Menu</h3><div id="catLinks"></div></nav>h
   <div class="main-content" id="mainContent"><div class="loading"><div class="loading-spinner"></div>Loading menu...</div></div>
 </div>
 <div class="cart-panel" id="cartPanel">
@@ -252,39 +252,7 @@ function updSummary(){
   document.getElementById('checkoutSummary').innerHTML=h;
 }
 
-async function placeOrder(){
-  const name=document.getElementById('custName').value.trim(),phone=document.getElementById('custPhone').value.trim();
-  const email=document.getElementById('custEmail').value.trim(),address=document.getElementById('custAddress').value.trim();
-  const notes=document.getElementById('custNotes').value.trim();
-  if(!name||!phone){alert('Please enter your name and phone.');return;}
-  if(orderType==='delivery'&&!address){alert('Please enter delivery address.');return;}
-  const sub=getSub(),disc=getDisc(sub),del=getDel(sub,disc),tax=(sub-disc+del)*TAX,tip=sub*tipPct/100,tot=sub-disc+del+tax+tip;
-  const payload={
-    customerName:name,customerPhone:phone,customerEmail:email||null,
-    deliveryAddress:orderType==='delivery'?address:null,specialInstructions:notes||null,
-    orderType,
-    items:cart.map(i=>({menu_item_id:i.id,name:i.name,size:i.size||'regular',qty:i.qty,unit_price:i.price,customizations:{}})),
-    subtotal:parseFloat(sub.toFixed(2)),deliveryFee:parseFloat(del.toFixed(2)),
-    tax:parseFloat(tax.toFixed(2)),tipAmount:parseFloat(tip.toFixed(2)),
-    discount:parseFloat(disc.toFixed(2)),total:parseFloat(tot.toFixed(2)),
-    promoCode:appliedDeal?.code||null
-  };
-  const btn=document.getElementById('placeOrderBtn');
-  btn.disabled=true;btn.textContent='Placing order...';
-  try{
-    const r=await fetch(BACKEND_URL+'/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const data=await r.json();
-    if(!r.ok)throw new Error(data.error||data.message||'Order failed');
-    closeCheckout();
-    document.getElementById('successOrderNum').textContent='#'+(data.order_number||data.order_id||'???');
-    if(data.estimated_ready)document.getElementById('successEta').textContent='Est. ready: '+data.estimated_ready;
-    document.getElementById('successModal').classList.add('open');
-    cart=[];appliedDeal=null;updateCart();
-  }catch(e){alert('Error: '+e.message);}
-  finally{btn.disabled=false;btn.textContent='Place Order';}
-}
-
-window.addEventListener('DOMContentLoaded',init);
+async function placeOrder(){ const name=document.getElementById('custName').value.trim(),phone=document.getElementById('custPhone').value.trim(); const email=document.getElementById('custEmail').value.trim(),address=document.getElementById('custAddress').value.trim(); const notes=document.getElementById('custNotes').value.trim(); if(!name||!phone){alert('Please enter your name and phone.');return;} if(orderType==='delivery'&&!address){alert('Please enter delivery address.');return;} const sub=getSub(),disc=getDisc(sub),del=getDel(sub,disc),tax=(sub-disc+del)*TAX,tip=sub*tipPct/100,tot=sub-disc+del+tax+tip; const orderItems=cart.map(i=>({name:i.name,size:i.size||'regular',quantity:i.qty,unit_price:i.price,price:i.price,total_price:parseFloat((i.price*i.qty).toFixed(2))})); const payload={ customer_name:name,customer_phone:phone,customer_email:email||null, customer:{name:name,phone:phone,email:email||null}, delivery_address:orderType==='delivery'?address:null, notes:notes||null, order_type:orderType, items:orderItems,order_items:orderItems, subtotal:parseFloat(sub.toFixed(2)),delivery_fee:parseFloat(del.toFixed(2)), tax_amount:parseFloat(tax.toFixed(2)),tax:parseFloat(tax.toFixed(2)), tip_amount:parseFloat(tip.toFixed(2)),tip:parseFloat(tip.toFixed(2)), discount:parseFloat(disc.toFixed(2)), total:parseFloat(tot.toFixed(2)), payment_method:'cash',payment_status:'pending',status:'pending',source:'website', promo_code:appliedDeal?.code||null }; const btn=document.getElementById('placeOrderBtn'); btn.disabled=true;btn.textContent='Placing order...'; try{ const r=await fetch(BACKEND_URL+'/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await r.json(); if(!r.ok)throw new Error(data.error||data.message||'Order failed'); closeCheckout(); document.getElementById('successOrderNum').textContent='#'+(data.order_number||data.order_id||'???'); if(data.estimated_ready)document.getElementById('successEta').textContent='Est. ready: '+data.estimated_ready; document.getElementById('successModal').classList.add('open'); cart=[];appliedDeal=null;updateCart(); }catch(e){alert('Error: '+e.message);} finally{btn.disabled=false;btn.textContent='Place Order';} } window.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
 </html>
