@@ -93,7 +93,7 @@
   // 2. Your backend URL — leave blank '' to disable online payment
   //    Local dev: 'http://localhost:3000'
   //    Production: 'https://api.superdealpizza.ca'  (see backend/README.md)
-  const BACKEND_URL = '';
+  const BACKEND_URL = 'https://wonderful-griffin-e6e3b7.netlify.app/.netlify/functions';
 
   // 3. Your Stripe publishable key (from https://dashboard.stripe.com/apikeys)
   const STRIPE_PUB_KEY = 'pk_test_YOUR_STRIPE_PUBLISHABLE_KEY';
@@ -4835,33 +4835,49 @@ async function initiatePayment() {
   document.getElementById('payment-loading-overlay').style.display = 'flex';
 
   try {
-    const resp = await fetch(BACKEND_URL + '/api/create-checkout-session', {
+    const orderItems = cart.map(i => ({
+      name: i.name,
+      size: (i.detail || 'regular').slice(0,50),
+      quantity: i.qty,
+      unit_price: i.price,
+      price: i.price,
+      total_price: Math.round(i.price * i.qty * 100) / 100
+    }));
+    const payload = {
+      customer_name: name,
+      customer_phone: phoneDigits,
+      customer: { name: name, phone: phoneDigits },
+      order_type: orderType,
+      delivery_address: orderType === 'delivery' ? deliveryAddress : null,
+      items: orderItems,
+      order_items: orderItems,
+      subtotal: Math.round((total - tax - tip - deliveryFee + promoDisc) * 100) / 100,
+      delivery_fee: Math.round(deliveryFee * 100) / 100,
+      tax_amount: Math.round(tax * 100) / 100,
+      tax: Math.round(tax * 100) / 100,
+      tip_amount: Math.round(tip * 100) / 100,
+      discount: Math.round(promoDisc * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      payment_method: 'cash',
+      payment_status: 'pending',
+      status: 'pending',
+      source: 'website',
+      promo_code: appliedPromo?.code || null
+    };
+    const resp = await fetch(BACKEND_URL + '/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cart: cart.map(i => ({name:i.name, detail:(i.detail||'').slice(0,200), price:i.price, qty:i.qty, emoji:i.emoji})),
-        orderType,
-        deliveryAddress: orderType === 'delivery' ? deliveryAddress : null,
-        customerName: name,
-        customerPhone: phoneDigits,
-        promoCode: appliedPromo?.code || null,
-        promoDiscount: promoDisc,
-        deliveryFee,
-        tax: Math.round(tax * 100) / 100,
-        tipAmount: Math.round(tip * 100) / 100,
-        total: Math.round(total * 100) / 100,
-      })
+      body: JSON.stringify(payload)
     });
-    if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Server error'); }
-    const { url } = await resp.json();
-    window.location.href = url;
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || data.message || 'Order failed');
+    showOrderConfirmModal(name, phoneDigits, total, orderType);
   } catch (err) {
     document.getElementById('payment-loading-overlay').style.display = 'none';
-    if (btn) { btn.disabled = false; btn.innerHTML = '💳 Pay Securely — $' + total.toFixed(2); }
+    document.getElementById('checkout-pay-btn').innerHTML = '💳 Pay Securely — $' + total.toFixed(2);
     showToast('❌ Payment failed: ' + err.message + '. Please call us to order.', 'red');
-    console.error('Stripe checkout error:', err);
-  }
-}
+    console.error('Order error:', err);
+  }}
 
 // ── ORDER CONFIRM MODAL (no-backend fallback) ─────────────────
 function showOrderConfirmModal(name, phone, total, type) {
