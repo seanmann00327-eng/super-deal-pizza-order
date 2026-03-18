@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Super Deal Pizza & Wings - Order Online</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#111;color:#eee;min-height:100vh}
+header{background:#1a1a1a;border-bottom:2px solid #e53935;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{font-size:28px}
+.logo-text h1{font-size:18px;color:#e53935;font-weight:700;line-height:1}
+.logo-text p{font-size:11px;color:#aaa}
+.header-right{display:flex;align-items:center;gap:16px}
+.store-status{font-size:12px;display:flex;align-items:center;gap:6px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#4caf50;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.cart-btn{background:#e53935;color:#fff;border:none;padding:8px 16px;border-radius:20px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px;font-weight:600;transition:background .2s}
+.cart-btn:hover{background:#c62828}
+.order-type-bar{background:#222;padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #333}
+.order-type-bar label{font-size:13px;color:#aaa}
+.order-type-btn{padding:7px 18px;border-radius:20px;border:2px solid #444;background:transparent;color:#aaa;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px;transition:all .2s}
+.order-type-btn.active{background:#e53935;border-color:#e53935;color:#fff;font-weight:600}
+.layout{display:flex;min-height:calc(100vh - 100px)}
+.sidebar{width:180px;background:#1a1a1a;padding:16px 0;border-right:1px solid #2a2a2a;position:sticky;top:100px;height:calc(100vh - 100px);overflow-y:auto;flex-shrink:0}
+.sidebar h3{padding:0 16px 8px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#666}
+.cat-link{display:block;padding:9px 16px;color:#aaa;text-decoration:none;font-size:13px;cursor:pointer;transition:all .2s;border-left:3px solid transparent}
+.cat-link:hover,.cat-link.active{color:#e53935;background:#222;border-left-color:#e53935}
+.main-content{flex:1;padding:20px;overflow-y:auto}
+.section-header{display:flex;align-items:center;gap:8px;margin:20px 0 12px;padding-bottom:8px;border-bottom:1px solid #2a2a2a}
+.section-header h2{font-size:16px;color:#fff}
+.items-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:20px}
+.item-card{background:#1e1e1e;border-radius:10px;padding:14px;border:1px solid #2a2a2a;transition:border-color .2s,transform .2s}
+.item-card:hover{border-color:#e53935;transform:translateY(-1px)}
+.item-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.item-emoji{font-size:28px;flex-shrink:0}
+.item-info{flex:1;min-width:0}
+.item-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:3px}
+.item-desc{font-size:11px;color:#888;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.badges{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+.badge{font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
+.badge-halal{background:#1b5e20;color:#a5d6a7}
+.badge-featured{background:#e65100;color:#ffe0b2}
+.size-select{margin-bottom:10px}
+.size-select label{font-size:11px;color:#888;display:block;margin-bottom:5px}
+.size-btns{display:flex;flex-wrap:wrap;gap:5px}
+.size-btn{padding:4px 10px;border-radius:12px;border:1px solid #444;background:transparent;color:#aaa;cursor:pointer;font-size:11px;transition:all .2s}
+.size-btn.active{background:#e53935;border-color:#e53935;color:#fff;font-weight:600}
+.item-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.item-price{font-size:16px;font-weight:700;color:#e53935}
+.add-btn{background:#e53935;color:#fff;border:none;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:18px;line-height:1;transition:background .2s;display:flex;align-items:center;justify-content:center}
+.add-btn:hover{background:#c62828}
+.deals-section{margin-bottom:24px}
+.deal-card{background:#1e1e1e;border:1px solid #2a2a2a;border-radius:10px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.deal-badge{background:#e53935;color:#fff;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap}
+.deal-info{flex:1}
+.deal-name{font-size:13px;font-weight:600;color:#fff}
+.deal-desc{font-size:11px;color:#888;margin-top:2px}
+.deal-code{font-size:10px;color:#aaa;margin-top:4px}
+.apply-deal-btn{background:transparent;border:1px solid #e53935;color:#e53935;padding:5px 12px;border-radius:12px;cursor:pointer;font-size:11px;transition:all .2s}
+.apply-deal-btn:hover{background:#e53935;color:#fff}
+.cart-panel{position:fixed;right:-400px;top:0;width:380px;height:100vh;background:#1a1a1a;border-left:1px solid #2a2a2a;z-index:200;transition:right .3s;display:flex;flex-direction:column;overflow:hidden}
+.cart-panel.open{right:0}
+.cart-header{padding:16px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between}
+.cart-header h2{font-size:16px}
+.close-cart{background:transparent;border:none;color:#aaa;font-size:20px;cursor:pointer;padding:4px 8px}
+.close-cart:hover{color:#fff}
+.cart-items{flex:1;overflow-y:auto;padding:16px}
+.cart-empty{text-align:center;color:#555;padding:40px 20px;font-size:14px}
+.cart-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #252525}
+.cart-item-info{flex:1}
+.cart-item-name{font-size:13px;font-weight:600}
+.cart-item-details{font-size:11px;color:#888;margin-top:2px}
+.cart-item-controls{display:flex;align-items:center;gap:8px;margin-top:6px}
+.qty-btn{background:#333;border:none;color:#eee;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
+.qty-btn:hover{background:#555}
+.qty-display{font-size:13px;min-width:20px;text-align:center}
+.cart-item-price{font-size:13px;font-weight:600;color:#e53935}
+.cart-footer{padding:16px;border-top:1px solid #2a2a2a}
+.promo-row{display:flex;gap:8px;margin-bottom:12px}
+.promo-input{flex:1;background:#252525;border:1px solid #444;color:#eee;padding:8px 12px;border-radius:8px;font-size:13px}
+.promo-btn{background:#333;border:none;color:#eee;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px}
+.promo-btn:hover{background:#555}
+.cart-totals{font-size:13px;margin-bottom:12px}
+.total-row{display:flex;justify-content:space-between;padding:3px 0;color:#aaa}
+.total-row.grand{color:#fff;font-weight:700;font-size:15px;border-top:1px solid #333;margin-top:6px;padding-top:6px}
+.total-row.discount{color:#4caf50}
+.checkout-btn{width:100%;background:#e53935;color:#fff;border:none;padding:13px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background .2s}
+.checkout-btn:hover{background:#c62828}
+.checkout-btn:disabled{background:#555;cursor:not-allowed}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;align-items:center;justify-content:center;padding:20px}
+.modal.open{display:flex}
+.modal-box{background:#1e1e1e;border-radius:14px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;padding:24px;border:1px solid #2a2a2a}
+.modal-box h2{font-size:18px;margin-bottom:16px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;color:#888;margin-bottom:6px}
+.form-group input,.form-group select,.form-group textarea{width:100%;background:#252525;border:1px solid #444;color:#eee;padding:10px 12px;border-radius:8px;font-size:13px}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:#e53935}
+.form-group textarea{resize:vertical;min-height:70px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tip-btns{display:flex;gap:8px;flex-wrap:wrap}
+.tip-btn{padding:7px 14px;border:1px solid #444;background:transparent;color:#aaa;border-radius:8px;cursor:pointer;font-size:12px;transition:all .2s}
+.tip-btn.active{background:#e53935;border-color:#e53935;color:#fff}
+.order-summary{background:#252525;border-radius:10px;padding:14px;margin:14px 0;font-size:13px}
+.order-summary .row{display:flex;justify-content:space-between;padding:3px 0;color:#aaa}
+.order-summary .row.total{color:#fff;font-weight:700;font-size:15px;border-top:1px solid #333;margin-top:6px;padding-top:6px}
+.place-order-btn{width:100%;background:#e53935;color:#fff;border:none;padding:13px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:12px;transition:background .2s}
+.place-order-btn:hover{background:#c62828}
+.place-order-btn:disabled{background:#555;cursor:not-allowed}
+.modal-close-btn{background:transparent;border:1px solid #444;color:#aaa;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;margin-top:8px;width:100%}
+.modal-close-btn:hover{border-color:#aaa;color:#fff}
+.success-modal{text-align:center;padding:10px}
+.success-icon{font-size:60px;margin-bottom:16px}
+.success-modal h2{color:#4caf50;margin-bottom:10px}
+.success-modal p{color:#aaa;font-size:14px;margin-bottom:8px}
+.success-modal .order-num{font-size:28px;font-weight:700;color:#e53935;margin:12px 0}
+.loading{text-align:center;padding:40px;color:#888}
+.loading-spinner{border:3px solid #333;border-top:3px solid #e53935;border-radius:50%;width:30px;height:30px;animation:spin .8s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error-msg{text-align:center;padding:40px;color:#e57373}
+@media(max-width:600px){.sidebar{display:none}.layout{display:block}.cart-panel{width:100%}.items-grid{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body><header>
+  <div class="logo">
+    <div class="logo-icon">🍕</div>
+    <div class="logo-text"><h1>SUPER DEAL PIZZA</h1><p>&amp; Wings &bull; Milton, ON</p></div>
+  </div>
+  <div class="header-right">
+    <div class="store-status"><span class="status-dot"></span><span id="storeStatus">Open Now</span></div>
+    <button class="cart-btn" onclick="toggleCart()">🛒 Cart <span id="cartCount">0</span></button>
+  </div>
+</header>
+<div class="order-type-bar">
+  <label>Order Type:</label>
+  <button class="order-type-btn active" id="pickupBtn" onclick="setOrderType('pickup')">🏃 Pickup</button>
+  <button class="order-type-btn" id="deliveryBtn" onclick="setOrderType('delivery')">🚗 Delivery</button>
+</div>
+<div class="layout">
+  <nav class="sidebar"><h3>Menu</h3><div id="catLinks"></div></nav>
+  <div class="main-content" id="mainContent"><div class="loading"><div class="loading-spinner"></div>Loading menu...</div></div>
+</div>
+<div class="cart-panel" id="cartPanel">
+  <div class="cart-header"><h2>🛒 Your Cart</h2><button class="close-cart" onclick="toggleCart()">✕</button></div>
+  <div class="cart-items" id="cartItems"><div class="cart-empty">Your cart is empty</div></div>
+  <div class="cart-footer">
+    <div class="promo-row">
+      <input class="promo-input" id="promoInput" placeholder="Promo code" />
+      <button class="promo-btn" onclick="applyPromo()">Apply</button>
+    </div>
+    <div class="cart-totals" id="cartTotals"></div>
+    <button class="checkout-btn" id="checkoutBtn" onclick="openCheckout()" disabled>Proceed to Checkout</button>
+  </div>
+</div>
+<div class="modal" id="checkoutModal">
+  <div class="modal-box">
+    <h2>Complete Your Order</h2>
+    <div class="form-row">
+      <div class="form-group"><label>Your Name *</label><input type="text" id="custName" placeholder="John Smith" /></div>
+      <div class="form-group"><label>Phone *</label><input type="tel" id="custPhone" placeholder="(416) 555-0123" /></div>
+    </div>
+    <div class="form-group"><label>Email</label><input type="email" id="custEmail" placeholder="john@email.com" /></div>
+    <div id="deliveryFields" style="display:none">
+      <div class="form-group"><label>Delivery Address *</label><input type="text" id="custAddress" placeholder="123 Main St, Milton, ON" /></div>
+    </div>
+    <div class="form-group"><label>Special Instructions</label><textarea id="custNotes" placeholder="Any special requests?"></textarea></div>
+    <div class="form-group">
+      <label>Tip</label>
+      <div class="tip-btns">
+        <button class="tip-btn" onclick="setTip(0)">No Tip</button>
+        <button class="tip-btn" onclick="setTip(10)">10%</button>
+        <button class="tip-btn active" onclick="setTip(15)">15%</button>
+        <button class="tip-btn" onclick="setTip(18)">18%</button>
+        <button class="tip-btn" onclick="setTip(20)">20%</button>
+      </div>
+    </div>
+    <div class="order-summary" id="checkoutSummary"></div>
+    <button class="place-order-btn" id="placeOrderBtn" onclick="placeOrder()">Place Order</button>
+    <button class="modal-close-btn" onclick="closeCheckout()">Cancel</button>
+  </div>
+</div>
+<div class="modal" id="successModal">
+  <div class="modal-box">
+    <div class="success-modal">
+      <div class="success-icon">🎉</div>
+      <h2>Order Placed!</h2>
+      <p>Your order number is</p>
+      <div class="order-num" id="successOrderNum">#000</div>
+      <p id="successEta"></p>
+      <p style="margin-top:12px;font-size:12px;color:#666">We'll have it ready soon. Thank you!</p>
+      <button class="place-order-btn" onclick="closeSuccess()" style="margin-top:20px">Back to Menu</button>
+    </div>
+  </div>
+</div><script>
+const BACKEND_URL='https://wonderful-griffin-e6e3b7.netlify.app/.netlify/functions';
+let menuData=null,cart=[],orderType='pickup',appliedDeal=null,tipPct=15;
+const TAX=0.13,DELFEE=3.99,FREEDEL=35,MINDEL=15;
+
+async function init(){await loadMenu();checkHours();}
+function checkHours(){const h=new Date().getHours(),open=h>=11&&h<23;document.getElementById('storeStatus').textContent=open?'Open Now':'Closed';document.querySelector('.status-dot').style.background=open?'#4caf50':'#e53935';}
+
+async function loadMenu(){
+  try{
+    const r=await fetch(BACKEND_URL+'/menu');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    menuData=await r.json();
+    renderMenu();
+  }catch(e){
+    document.getElementById('mainContent').innerHTML='<div class="error-msg">&#9888; Failed to load menu. Please refresh.</div>';
+  }
+}
+
+function getFirstPrice(p){
+  if(!p)return 0;
+  for(const k of['Sm','Md','Lg','XL','Party','6pc','10pc','20pc','40pc','regular']){if(p[k]!==undefined)return p[k];}
+  const v=Object.values(p);return v.length?v[0]:0;
+}
+function getDisplayPrice(p){
+  if(!p)return '$0.00';
+  const k=Object.keys(p);
+  if(k.length===1)return '$'+Number(p[k[0]]).toFixed(2);
+  const v=Object.values(p).map(Number);
+  return 'From $'+Math.min(...v).toFixed(2);
+}
+function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function renderMenu(){
+  if(!menuData)return;
+  const{categories,items,deals}=menuData;
+  const cl=document.getElementById('catLinks');
+  cl.innerHTML='';
+  if(deals&&deals.length){const a=document.createElement('a');a.className='cat-link';a.textContent='🏷️ Deals';a.href='#deals';cl.appendChild(a);}
+  categories.forEach(cat=>{
+    const a=document.createElement('a');a.className='cat-link';
+    a.textContent=(cat.emoji||'')+' '+cat.name;
+    a.onclick=e=>{e.preventDefault();document.querySelector('#sec-'+cat.slug)?.scrollIntoView({behavior:'smooth'});
+      document.querySelectorAll('.cat-link').forEach(l=>l.classList.remove('active'));a.classList.add('active');};
+    cl.appendChild(a);
+  });
+  let html='';
+  if(deals&&deals.length){
+    html+='<div id="deals" style="margin-bottom:24px"><div class="section-header"><h2>🏷️ Today's Deals</h2></div>';
+    deals.forEach(d=>{
+      let lbl=d.discount_type==='percentage'?d.discount_value+'% OFF':d.discount_type==='fixed'?'$'+d.discount_value+' OFF':'FREE DELIVERY';
+      html+='<div class="deal-card"><div class="deal-badge">'+lbl+'</div><div class="deal-info"><div class="deal-name">'+escH(d.name)+'</div><div class="deal-desc">'+escH(d.description)+'</div>';
+      if(d.code)html+='<div class="deal-code">Code: <strong>'+escH(d.code)+'</strong> &bull; Min: $'+(d.min_order||0).toFixed(2)+'</div>';
+      html+='</div><button class="apply-deal-btn" data-code="'+escH(d.code||'')+'" onclick="quickApply(this)">Apply</button></div>';
+    });
+    html+='</div>';
+  }
+  categories.forEach(cat=>{
+    const ci=items.filter(i=>i.category_id===cat.id&&i.is_active);
+    if(!ci.length)return;
+    html+='<div id="sec-'+cat.slug+'"><div class="section-header"><h2>'+(cat.emoji||'')+' '+escH(cat.name)+'</h2></div><div class="items-grid">';
+    ci.forEach(item=>html+=renderCard(item,cat.slug));
+    html+='</div></div>';
+  });
+  document.getElementById('mainContent').innerHTML=html;
+}
+
+function renderCard(item,slug){
+  const p=item.prices||{};const isWing=slug==='wings';const isPizza=slug.includes('pizza');
+  const isSingle=Object.keys(p).length===1;
+  let sHtml='';
+  if(!isSingle){
+    const ord=isWing?['6pc','10pc','20pc','40pc']:isPizza?['Sm','Md','Lg','XL','Party']:Object.keys(p);
+    const av=ord.filter(k=>p[k]!==undefined);
+    if(av.length>1){
+      sHtml='<div class="size-select"><label>Size</label><div class="size-btns">';
+      av.forEach((sz,i)=>sHtml+='<button class="size-btn'+(i===0?' active':'')+'" data-item="'+escH(item.id)+'" data-size="'+escH(sz)+'" onclick="selSize(this)">'+escH(sz)+' - $'+Number(p[sz]).toFixed(2)+'</button>');
+      sHtml+='</div></div>';
+    }
+  }
+  const ij=JSON.stringify(JSON.stringify(item));
+  return '<div class="item-card" id="card-'+escH(item.id)+'">'+
+    '<div class="item-top"><div class="item-emoji">'+(item.emoji||'🍕')+'</div>'+
+    '<div class="item-info"><div class="item-name">'+escH(item.name)+'</div>'+
+    '<div class="item-desc">'+escH(item.description)+'</div>'+
+    '<div class="badges">'+(item.is_halal?'<span class="badge badge-halal">HALAL</span>':'')+(item.is_featured?'<span class="badge badge-featured">⭐ FEATURED</span>':'')+'</div>'+
+    '</div></div>'+sHtml+
+    '<div class="item-footer"><span class="item-price" id="pr-'+escH(item.id)+'">'+getDisplayPrice(p)+'</span>'+
+    '<button class="add-btn" onclick="addCart('+ij+')">+</button></div></div>';
+}
+
+function selSize(btn){
+  const id=btn.dataset.item,sz=btn.dataset.size;
+  const card=document.getElementById('card-'+id);
+  if(!card)return;
+  card.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const it=menuData.items.find(i=>i.id===id);
+  if(it&&it.prices&&it.prices[sz]!==undefined)document.getElementById('pr-'+id).textContent='$'+Number(it.prices[sz]).toFixed(2);
+}
+
+function addCart(ij){
+  const item=JSON.parse(ij);
+  const card=document.getElementById('card-'+item.id);
+  let sz=null,pr=getFirstPrice(item.prices);
+  if(card){
+    const ab=card.querySelector('.size-btn.active');
+    if(ab){sz=ab.dataset.size;pr=item.prices[sz]!==undefined?Number(item.prices[sz]):pr;}
+    else if(Object.keys(item.prices||{}).length===1){sz=Object.keys(item.prices)[0];pr=Number(Object.values(item.prices)[0]);}
+  }
+  const ex=cart.find(c=>c.id===item.id&&c.size===sz);
+  if(ex)ex.qty++;
+  else cart.push({id:item.id,name:item.name,emoji:item.emoji||'🍕',size:sz,price:pr,qty:1});
+  updateCart();flash();
+}
+
+function flash(){const b=document.querySelector('.cart-btn');b.style.background='#4caf50';setTimeout(()=>b.style.background='',600);}
+
+function quickApply(btn){
+  document.getElementById('promoInput').value=btn.dataset.code;
+  applyPromo();
+  if(!document.getElementById('cartPanel').classList.contains('open'))toggleCart();
+}
+
+function applyPromo(){
+  const code=document.getElementById('promoInput').value.trim().toUpperCase();
+  if(!code||!menuData)return;
+  const deal=menuData.deals?.find(d=>d.code&&d.code.toUpperCase()===code&&d.is_active);
+  if(!deal){alert('Invalid promo code.');return;}
+  if(getSub()<(deal.min_order||0)){alert('Min order $'+deal.min_order.toFixed(2)+' required.');return;}
+  appliedDeal=deal;updateCart();
+}
+
+function getSub(){return cart.reduce((s,i)=>s+i.price*i.qty,0);}
+function getDisc(sub){if(!appliedDeal)return 0;if(appliedDeal.discount_type==='percentage')return sub*appliedDeal.discount_value/100;if(appliedDeal.discount_type==='fixed')return appliedDeal.discount_value;return 0;}
+function getDel(sub,disc){if(orderType!=='delivery')return 0;if(appliedDeal?.discount_type==='free_delivery')return 0;return sub-disc>=FREEDEL?0:DELFEE;}
+
+function updateCart(){
+  const cnt=cart.reduce((s,i)=>s+i.qty,0);
+  document.getElementById('cartCount').textContent=cnt;
+  const ie=document.getElementById('cartItems');
+  if(!cart.length){ie.innerHTML='<div class="cart-empty">Your cart is empty</div>';document.getElementById('checkoutBtn').disabled=true;document.getElementById('cartTotals').innerHTML='';return;}
+  let h='';
+  cart.forEach((item,i)=>{
+    h+='<div class="cart-item"><div style="font-size:22px">'+item.emoji+'</div><div class="cart-item-info"><div class="cart-item-name">'+escH(item.name)+'</div>';
+    if(item.size)h+='<div class="cart-item-details">'+escH(item.size)+' &bull; $'+item.price.toFixed(2)+' ea</div>';
+    h+='<div class="cart-item-controls"><button class="qty-btn" onclick="chgQty('+i+',-1)">-</button><span class="qty-display">'+item.qty+'</span><button class="qty-btn" onclick="chgQty('+i+',1)">+</button></div></div>';
+    h+='<span class="cart-item-price">$'+(item.price*item.qty).toFixed(2)+'</span></div>';
+  });
+  ie.innerHTML=h;
+  const sub=getSub(),disc=getDisc(sub),del=getDel(sub,disc),tax=(sub-disc+del)*TAX,tip=sub*tipPct/100,tot=sub-disc+del+tax+tip;
+  let th='';
+  th+='<div class="total-row"><span>Subtotal</span><span>$'+sub.toFixed(2)+'</span></div>';
+  if(disc>0)th+='<div class="total-row discount"><span>Discount</span><span>-$'+disc.toFixed(2)+'</span></div>';
+  if(orderType==='delivery')th+='<div class="total-row"><span>Delivery</span><span>'+(del===0?'FREE':'$'+del.toFixed(2))+'</span></div>';
+  th+='<div class="total-row"><span>Tax (HST 13%)</span><span>$'+tax.toFixed(2)+'</span></div>';
+  if(tipPct>0)th+='<div class="total-row"><span>Tip ('+tipPct+'%)</span><span>$'+tip.toFixed(2)+'</span></div>';
+  th+='<div class="total-row grand"><span>Total</span><span>$'+tot.toFixed(2)+'</span></div>';
+  const ok=orderType==='pickup'||sub>=MINDEL;
+  if(!ok)th+='<div style="color:#e57373;font-size:11px;margin-top:6px">Min delivery: $'+MINDEL+'</div>';
+  document.getElementById('cartTotals').innerHTML=th;
+  document.getElementById('checkoutBtn').disabled=!ok;
+}
+
+function chgQty(i,d){cart[i].qty+=d;if(cart[i].qty<=0)cart.splice(i,1);updateCart();}
+function setOrderType(t){orderType=t;document.getElementById('pickupBtn').classList.toggle('active',t==='pickup');document.getElementById('deliveryBtn').classList.toggle('active',t==='delivery');document.getElementById('deliveryFields').style.display=t==='delivery'?'block':'none';updateCart();}
+function toggleCart(){document.getElementById('cartPanel').classList.toggle('open');}
+
+function openCheckout(){
+  if(!cart.length)return;
+  document.getElementById('deliveryFields').style.display=orderType==='delivery'?'block':'none';
+  updSummary();document.getElementById('checkoutModal').classList.add('open');
+}
+function closeCheckout(){document.getElementById('checkoutModal').classList.remove('open');}
+function closeSuccess(){document.getElementById('successModal').classList.remove('open');location.reload();}
+
+function setTip(p){tipPct=p;document.querySelectorAll('.tip-btn').forEach(b=>b.classList.remove('active'));event.target.classList.add('active');updSummary();updateCart();}
+
+function updSummary(){
+  const sub=getSub(),disc=getDisc(sub),del=getDel(sub,disc),tax=(sub-disc+del)*TAX,tip=sub*tipPct/100,tot=sub-disc+del+tax+tip;
+  let h='';
+  cart.forEach(i=>h+='<div class="row"><span>'+escH(i.emoji+' '+i.name+(i.size?' ('+i.size+')':''))+' x'+i.qty+'</span><span>$'+(i.price*i.qty).toFixed(2)+'</span></div>');
+  h+='<div class="row"><span>Subtotal</span><span>$'+sub.toFixed(2)+'</span></div>';
+  if(disc>0)h+='<div class="row" style="color:#4caf50"><span>Discount</span><span>-$'+disc.toFixed(2)+'</span></div>';
+  if(orderType==='delivery')h+='<div class="row"><span>Delivery</span><span>'+(del===0?'FREE':'$'+del.toFixed(2))+'</span></div>';
+  h+='<div class="row"><span>Tax (HST 13%)</span><span>$'+tax.toFixed(2)+'</span></div>';
+  if(tipPct>0)h+='<div class="row"><span>Tip ('+tipPct+'%)</span><span>$'+tip.toFixed(2)+'</span></div>';
+  h+='<div class="row total"><span>Total</span><span>$'+tot.toFixed(2)+'</span></div>';
+  document.getElementById('checkoutSummary').innerHTML=h;
+}
+
+async function placeOrder(){
+  const name=document.getElementById('custName').value.trim(),phone=document.getElementById('custPhone').value.trim();
+  const email=document.getElementById('custEmail').value.trim(),address=document.getElementById('custAddress').value.trim();
+  const notes=document.getElementById('custNotes').value.trim();
+  if(!name||!phone){alert('Please enter your name and phone.');return;}
+  if(orderType==='delivery'&&!address){alert('Please enter delivery address.');return;}
+  const sub=getSub(),disc=getDisc(sub),del=getDel(sub,disc),tax=(sub-disc+del)*TAX,tip=sub*tipPct/100,tot=sub-disc+del+tax+tip;
+  const payload={
+    customerName:name,customerPhone:phone,customerEmail:email||null,
+    deliveryAddress:orderType==='delivery'?address:null,specialInstructions:notes||null,
+    orderType,
+    items:cart.map(i=>({menu_item_id:i.id,name:i.name,size:i.size||'regular',qty:i.qty,unit_price:i.price,customizations:{}})),
+    subtotal:parseFloat(sub.toFixed(2)),deliveryFee:parseFloat(del.toFixed(2)),
+    tax:parseFloat(tax.toFixed(2)),tipAmount:parseFloat(tip.toFixed(2)),
+    discount:parseFloat(disc.toFixed(2)),total:parseFloat(tot.toFixed(2)),
+    promoCode:appliedDeal?.code||null
+  };
+  const btn=document.getElementById('placeOrderBtn');
+  btn.disabled=true;btn.textContent='Placing order...';
+  try{
+    const r=await fetch(BACKEND_URL+'/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||data.message||'Order failed');
+    closeCheckout();
+    document.getElementById('successOrderNum').textContent='#'+(data.order_number||data.order_id||'???');
+    if(data.estimated_ready)document.getElementById('successEta').textContent='Est. ready: '+data.estimated_ready;
+    document.getElementById('successModal').classList.add('open');
+    cart=[];appliedDeal=null;updateCart();
+  }catch(e){alert('Error: '+e.message);}
+  finally{btn.disabled=false;btn.textContent='Place Order';}
+}
+
+window.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
