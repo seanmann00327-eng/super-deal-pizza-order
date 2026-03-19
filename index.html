@@ -4713,6 +4713,19 @@ function renderCart() {
       <div id="checkout-contact-err" style="display:none;margin-top:8px;font-size:12px;color:var(--red);font-weight:700;"></div>
     </div>
 
+<!-- SCHEDULE PICKER -->
+    <div id="schedule-picker" style="background:#111827;border:1px solid #1e3a5f;border-radius:10px;padding:14px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">⏰ When do you want it?</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button id="sched-asap" onclick="setScheduleMode('asap')" style="flex:1;padding:10px;border-radius:8px;border:2px solid #f97316;background:#f97316;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">🚀 ASAP</button>
+        <button id="sched-later" onclick="setScheduleMode('later')" style="flex:1;padding:10px;border-radius:8px;border:2px solid #334155;background:transparent;color:#94a3b8;font-weight:700;font-size:13px;cursor:pointer;">🕐 Schedule</button>
+      </div>
+      <div id="sched-time-row" style="display:none;margin-top:8px;">
+        <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Pick a date & time:</label>
+        <input type="datetime-local" id="sched-datetime" style="width:100%;box-sizing:border-box;padding:8px 10px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-size:13px;" oninput="validateScheduleTime()">
+        <div id="sched-time-err" style="color:#f87171;font-size:11px;margin-top:4px;display:none;">⚠ Please pick a time at least 30 min from now.</div>
+      </div>
+    </div>
     <button class="checkout-btn" id="pay-now-btn" onclick="initiatePayment()" style="background:linear-gradient(135deg,#1a8c3a,#22b54a);box-shadow:0 6px 24px rgba(34,181,74,0.4);">
       ${BACKEND_URL ? '💳 Pay Securely — $' + total.toFixed(2) : '✅ Place Order — $' + total.toFixed(2)}
     </button>
@@ -4847,7 +4860,9 @@ async function initiatePayment() {
       payment_status: 'pending',
       status: 'pending',
       source: 'website',
-      promo_code: appliedPromo?.code || null
+      promo_code: appliedPromo?.code || null,
+    scheduled_for: scheduledFor || null,
+    is_scheduled: !!scheduledFor
     };
     const resp = await fetch(BACKEND_URL + '/orders', {
       method: 'POST',
@@ -4919,6 +4934,46 @@ function closeOrderConfirmModal() {
 }
 
 // Legacy stub — kept so old references don't crash
+// ── SCHEDULE MODE ─────────────────────
+var scheduleMode = 'asap';
+var scheduledFor = null;
+
+function setScheduleMode(mode) {
+  scheduleMode = mode;
+  var asapBtn = document.getElementById('sched-asap');
+  var laterBtn = document.getElementById('sched-later');
+  var timeRow = document.getElementById('sched-time-row');
+  if (!asapBtn || !laterBtn) return;
+  if (mode === 'asap') {
+    asapBtn.style.background='#f97316';asapBtn.style.borderColor='#f97316';asapBtn.style.color='#fff';
+    laterBtn.style.background='transparent';laterBtn.style.borderColor='#334155';laterBtn.style.color='#94a3b8';
+    if(timeRow)timeRow.style.display='none';
+    scheduledFor=null;
+  } else {
+    laterBtn.style.background='#1e40af';laterBtn.style.borderColor='#3b82f6';laterBtn.style.color='#fff';
+    asapBtn.style.background='transparent';asapBtn.style.borderColor='#334155';asapBtn.style.color='#94a3b8';
+    if(timeRow)timeRow.style.display='block';
+    var minDt=new Date(Date.now()+30*60000);
+    var minStr=minDt.toISOString().slice(0,16);
+    var dtInput=document.getElementById('sched-datetime');
+    if(dtInput){dtInput.min=minStr;if(!dtInput.value)dtInput.value=minStr;scheduledFor=dtInput.value;}
+  }
+}
+
+function validateScheduleTime() {
+  var dtInput=document.getElementById('sched-datetime');
+  var errEl=document.getElementById('sched-time-err');
+  if(!dtInput)return true;
+  var val=dtInput.value;
+  if(!val)return true;
+  var chosen=new Date(val).getTime();
+  var minTime=Date.now()+30*60000;
+  if(chosen<minTime){if(errEl)errEl.style.display='block';scheduledFor=null;return false;}
+  if(errEl)errEl.style.display='none';
+  scheduledFor=val;
+  return true;
+}
+
 function placeOrder() { initiatePayment(); }
 
 function changeQty(id, delta) {
@@ -6908,11 +6963,15 @@ function addCustomCateringToCart() {
 
   let parts = [];
   if (cc.pizzas.length > 0) {
-    parts.push(`${cc.pizzas.length}× ${cc.pizzaSize} Pizzas`);
-    cc.pizzas.forEach((p, i) => {
-      const topStr = p.toppings.length > 0 ? p.toppings.join(', ') : 'No toppings';
-      parts.push(`  P${i+1}: ${p.crust} | ${p.sauce} | ${p.cheese} | ${topStr}`);
+    // Kitchen summary: group by topping combo
+    var pizzaGroups = {};
+    cc.pizzas.forEach(function(p) {
+      var tops = p.toppings.length ? p.toppings.join(', ') : 'No toppings';
+      var grpKey = p.crust + ' | ' + p.sauce + ' | ' + p.cheese + ' | ' + tops;
+      pizzaGroups[grpKey] = (pizzaGroups[grpKey] || 0) + 1;
     });
+    var pizzaSummary = Object.keys(pizzaGroups).map(function(k){return pizzaGroups[k]+'× '+k;}).join(' | ');
+    parts.push(cc.pizzas.length + '× ' + cc.pizzaSize + ' Pizzas: ' + pizzaSummary);
   }
   if (cc.wings > 0) parts.push(`${cc.wings} Wings (${cc.wingSauce}, ${cc.wingStyle})`);
   const popTot = Object.values(cc.pops).reduce((a, b) => a + b, 0);
