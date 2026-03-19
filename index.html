@@ -19,7 +19,7 @@
 <meta name="geo.region" content="CA-ON">
 <meta name="geo.placename" content="Milton, Ontario">
 <meta name="geo.position" content="43.5183;-79.8774">
-<meta name="ICBM" content="43.5183, -79.8774">
+<meta name="ICBM" content="43.5183, -79.8774">h
 
 <!-- Open Graph / Social -->
 <meta property="og:type" content="restaurant">
@@ -5829,6 +5829,7 @@ function confirmWingsSheet() {
   cart.push({id:Date.now(), name:s.type+' '+s.size, detail, price:total, emoji:s.emoji, qty:1});
   updateCartBadge();
   closeWingsSheet();
+    renderCart();
   showToast('🍗 Wings added!');
 }
 function renderWingsSheet() {
