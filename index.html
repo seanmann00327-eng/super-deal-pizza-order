@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Super Deal Pizza">
 <meta name="mobile-web-app-capable" content="yes">
 
-<!-- SEO -->
+<!-- SEO -->h
 <title>Super Deal Pizza & Wings Milton | Halal Pizza Delivery & Pickup | Order Online</title>
 <meta name="description" content="Super Deal Pizza & Wings in Milton, Ontario. Family-owned since 2002. Fresh halal pizza options, wings, and amazing deals. Delivery 30-50 min or free pickup 15-20 min. Catering available for parties & events. Order online or call 905-876-0222.">
 <meta name="keywords" content="pizza Milton, halal pizza Milton Ontario, pizza delivery Milton ON, wings delivery Milton, best pizza Milton, pizza deals Milton, catering Milton Ontario, party pizza Milton, Super Deal Pizza, pizza near me Milton, halal food Milton, game day pizza deals, UFC pizza, UFC fight nights Milton, pizza pickup Milton, cheap pizza Milton, family pizza deals, corporate catering Milton, late night pizza Milton, student pizza deals">
@@ -4837,7 +4837,7 @@ async function initiatePayment() {
   try {
     const orderItems = cart.map(i => ({
       name: i.name,
-      size: (i.detail || 'regular').slice(0,50),
+      size: (i.detail || 'regular'),
       quantity: i.qty,
       unit_price: i.price,
       price: i.price,
