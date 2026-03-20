@@ -4939,7 +4939,7 @@ async function initiatePayment() {
     } catch(e) {}
   } catch (err) {
     document.getElementById('payment-loading-overlay').style.display = 'none';
-    document.getElementById('checkout-pay-btn').innerHTML = '💳 Pay Securely — $' + total.toFixed(2);
+    document.getElementById('pay-now-btn').innerHTML = '💳 Pay Securely — $' + total.toFixed(2);
     showToast('❌ Payment failed: ' + err.message + '. Please call us to order.', 'red');
     console.error('Order error:', err);
   }}
