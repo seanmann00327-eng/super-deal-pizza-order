@@ -1605,6 +1605,17 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin
 input[type=number] { -moz-appearance: textfield; }
 
 </style>
+<script>
+/* SDP: Store settings loaded from Supabase - allows admin to control fees/rates */
+window.sdpSettings = {delivery_fee:3.99,free_delivery_over:35.00,min_order_delivery:15.00,tax_rate:0.13,delivery_time_min:30,delivery_time_max:40,pickup_time_min:10,pickup_time_max:15};
+(function() {
+  fetch('https://qllrjizfyuxotgnybrzt.supabase.co/rest/v1/settings?select=key,value', {
+    headers: {'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI'}
+  }).then(r => r.json()).then(rows => {
+    rows.forEach(r => { window.sdpSettings[r.key] = parseFloat(r.value) || r.value; });
+  }).catch(() => {});
+})();
+</script>
 </head>
 <body>
 <div id="desktop-wrapper">
@@ -4612,12 +4623,12 @@ function renderCart() {
     return;
   }
   const sub = cart.reduce((s,i) => s + i.price * i.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? 5.00 : 0;
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 3.99) : 0;
   const promoDisc = appliedPromo
     ? (appliedPromo.type==='percent' ? sub*appliedPromo.discount : appliedPromo.discount)
     : 0;
   const taxable = Math.max(0, sub - promoDisc) + deliveryFee;
-  const tax = taxable * 0.13;
+  const tax = taxable * (window.sdpSettings?.tax_rate || 0.13);
   const tip = getTipAmount(sub, promoDisc);
   const total = taxable + tax + tip;
 
@@ -4803,10 +4814,10 @@ async function initiatePayment() {
 
   // ── 3. Calculate totals ──
   const sub = cart.reduce((s,i) => s + i.price * i.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? 5.00 : 0;
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 3.99) : 0;
   const promoDisc = appliedPromo ? (appliedPromo.type==='percent' ? sub*appliedPromo.discount : appliedPromo.discount) : 0;
   const taxable = Math.max(0, sub - promoDisc) + deliveryFee;
-  const tax = taxable * 0.13;
+  const tax = taxable * (window.sdpSettings?.tax_rate || 0.13);
   const tip = getTipAmount(sub, promoDisc);
   const total = taxable + tax + tip;
 
@@ -6358,7 +6369,7 @@ function redeemReward(pts) {
 function updateFloatingCart() {
   const count = cart.reduce((s,i) => s + i.qty, 0);
   const sub   = cart.reduce((s,i) => s + i.price * i.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? 5.00 : 0;
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 3.99) : 0;
   const total = (sub + deliveryFee) * 1.13;
 
   // Floating bar
