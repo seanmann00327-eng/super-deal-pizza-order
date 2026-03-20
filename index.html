@@ -4875,13 +4875,62 @@ async function initiatePayment() {
     scheduled_for: scheduledFor || null,
     is_scheduled: !!scheduledFor
     };
-    const resp = await fetch(BACKEND_URL + '/orders', {
+    // Write order directly to Supabase
+    const _supaUrl = 'https://qllrjizfyuxotgnybrzt.supabase.co';
+    const _supaKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI';
+    // Insert order
+    const _orderPayload = {
+      customer_name: payload.customer_name,
+      customer_phone: payload.customer_phone,
+      order_type: payload.order_type || 'pickup',
+      delivery_address: payload.delivery_address ? JSON.stringify(payload.delivery_address) : null,
+      subtotal: payload.subtotal || 0,
+      delivery_fee: payload.delivery_fee || 0,
+      tax_amount: payload.tax_amount || 0,
+      tip_amount: payload.tip_amount || 0,
+      discount_amount: payload.discount || 0,
+      total_amount: payload.total || 0,
+      payment_method: payload.payment_method || 'cash',
+      payment_status: payload.payment_status || 'pending',
+      status: payload.status || 'pending',
+      source: payload.source || 'website',
+      promo_code: payload.promo_code || null,
+      special_instructions: payload.special_instructions || null,
+      scheduled_for: payload.scheduled_for || null,
+      is_scheduled: payload.is_scheduled || false,
+      item_count: (payload.items || payload.order_items || []).length
+    };
+    const resp = await fetch(_supaUrl + '/rest/v1/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: {
+        'apikey': _supaKey,
+        'Authorization': 'Bearer ' + _supaKey,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(_orderPayload)
     });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || data.message || 'Order failed');
+    const _orders = await resp.json();
+    if (!resp.ok) throw new Error((_orders[0] && _orders[0].message) || 'Order failed');
+    const _order = _orders[0];
+    // Insert order items
+    const _items = payload.order_items || payload.items || [];
+    if (_items.length > 0 && _order && _order.id) {
+      const _orderItems = _items.map(item => ({
+        order_id: _order.id,
+        item_name: item.name || 'Item',
+        quantity: item.quantity || item.qty || 1,
+        unit_price: item.unit_price || item.price || 0,
+        subtotal: (item.unit_price || item.price || 0) * (item.quantity || item.qty || 1),
+        customizations: item.detail ? { detail: item.detail } : null
+      }));
+      fetch(_supaUrl + '/rest/v1/order_items', {
+        method: 'POST',
+        headers: { 'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(_orderItems)
+      }).catch(() => {});
+    }
+    const data = { success: true, order_id: _order ? _order.id : null };
     showOrderConfirmModal(name, phoneDigits, total, orderType);
     try {
       const orderItems = cart.map(function(i){ return { name: i.name, detail: i.size||i.detail||'', price: i.price||0, qty: i.qty||1 }; });
