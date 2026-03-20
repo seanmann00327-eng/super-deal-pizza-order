@@ -4898,7 +4898,6 @@ async function initiatePayment() {
       special_instructions: payload.special_instructions || null,
       scheduled_for: payload.scheduled_for || null,
       is_scheduled: payload.is_scheduled || false,
-      item_count: (payload.items || payload.order_items || []).length
     };
     const resp = await fetch(_supaUrl + '/rest/v1/orders', {
       method: 'POST',
