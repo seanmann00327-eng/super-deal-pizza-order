@@ -1,4 +1,4 @@
-h<!DOCTYPE html>
+hh<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -4538,7 +4538,12 @@ async function confirmManualAddr() {
   showToast('📍 Address confirmed!');
 }
 
-// Legacy stub (called from old inline oninput but we no longer render that, keeping for safety)
+// === LIVE ORDER TRACKER ===
+function showOrderTracker(){try{var td=localStorage.getItem('sdp_active_order');if(!td){showToast('No active order to track','#e74c3c');return;}var t=JSON.parse(td);var oid=t.order_id;if(!oid){showToast('No order ID found','#e74c3c');return;}var old=document.getElementById('order-tracker-wrap');if(old)old.remove();var el=document.createElement('div');el.id='order-tracker-wrap';el.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';var inner=document.createElement('div');inner.id='tracker-inner';inner.style.cssText='background:#1a1a2e;border-radius:20px;padding:30px;max-width:500px;width:100%;color:#fff;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.5)';inner.innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:24px">Loading order status...</div></div>';el.appendChild(inner);el.addEventListener('click',function(e){if(e.target===el)el.remove()});document.body.appendChild(el);fetchOrderStatus(oid);}catch(e){showToast('Error opening tracker','#e74c3c');}}
+function fetchOrderStatus(oid){var url=window._supaUrl+'/rest/v1/orders?id=eq.'+oid+'&select=*';fetch(url,{headers:{'apikey':window._supaKey,'Authorization':'Bearer '+window._supaKey}}).then(function(r){return r.json()}).then(function(data){if(data&&data.length>0){renderTrackerUI(data[0]);startTrackerPolling(oid);}else{var inner=document.getElementById('tracker-inner');if(inner)inner.innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:20px;color:#e74c3c">Order not found</div><div onclick="document.getElementById(\'order-tracker-wrap\').remove()" style="margin-top:20px;padding:10px 24px;background:#333;border-radius:10px;cursor:pointer;display:inline-block">Close</div></div>';}}).catch(function(e){var inner=document.getElementById('tracker-inner');if(inner)inner.innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:20px;color:#e74c3c">Could not load order</div><div onclick="document.getElementById(\'order-tracker-wrap\').remove()" style="margin-top:20px;padding:10px 24px;background:#333;border-radius:10px;cursor:pointer;display:inline-block">Close</div></div>';});}
+function startTrackerPolling(oid){if(window._trackerInterval)clearInterval(window._trackerInterval);window._trackerInterval=setInterval(function(){if(!document.getElementById('order-tracker-wrap')){clearInterval(window._trackerInterval);return;}fetchOrderStatusSilent(oid);},8000);}
+function fetchOrderStatusSilent(oid){var url=window._supaUrl+'/rest/v1/orders?id=eq.'+oid+'&select=*';fetch(url,{headers:{'apikey':window._supaKey,'Authorization':'Bearer '+window._supaKey}}).then(function(r){return r.json()}).then(function(data){if(data&&data.length>0)renderTrackerUI(data[0]);}).catch(function(){});}
+function renderTrackerUI(order){var inner=document.getElementById('tracker-inner');if(!inner)return;var s=order.status||'pending';var isDelivery=(order.order_type||'').toLowerCase()==='delivery';var steps=isDelivery?[{id:'pending',label:'Order Received',icon:'\ud83d\udce8'},{id:'preparing',label:'Preparing',icon:'\ud83d\udc68\u200d\ud83c\udf73'},{id:'ready',label:'Ready',icon:'\u2705'},{id:'out_for_delivery',label:'Out for Delivery',icon:'\ud83d\ude97'},{id:'delivered',label:'Delivered',icon:'\ud83c\udfe0'}]:[{id:'pending',label:'Order Received',icon:'\ud83d\udce8'},{id:'preparing',label:'Preparing',icon:'\ud83d\udc68\u200d\ud83c\udf73'},{id:'ready',label:'Ready for Pickup',icon:'\u2705'},{id:'picked_up',label:'Picked Up',icon:'\ud83c\udf89'}];var statusMap={'pending':0,'accepted':0,'preparing':1,'ready':2,'out_for_delivery':3,'delivered':4,'picked_up':3,'completed':steps.length-1,'cancelled':-1};var currentIdx=statusMap[s]!==undefined?statusMap[s]:0;var cancelled=s==='cancelled';var onum=order.order_number||order.id.substring(0,8);var h='<div style="text-align:center;margin-bottom:24px"><div style="font-size:14px;color:#888;text-transform:uppercase;letter-spacing:1px">Order Tracking</div><div style="font-size:22px;font-weight:700;margin-top:6px">#'+onum+'</div></div>';if(cancelled){h+='<div style="text-align:center;padding:30px;background:#2d1515;border-radius:15px;margin:15px 0"><div style="font-size:40px">\u274c</div><div style="font-size:18px;color:#e74c3c;font-weight:700;margin-top:10px">Order Cancelled</div></div>';}else{h+='<div style="padding:10px 0">';for(var i=0;i<steps.length;i++){var done=i<=currentIdx;var active=i===currentIdx;var bg=done?(active?'linear-gradient(135deg,#22c55e,#16a34a)':'#22c55e'):'#333';var opacity=done?'1':'0.4';var scale=active?'scale(1.05)':'scale(1)';h+='<div style="display:flex;align-items:center;margin-bottom:'+(i<steps.length-1?'0':'8')+'px;opacity:'+opacity+';transform:'+scale+';transition:all 0.3s">';h+='<div style="width:50px;height:50px;border-radius:50%;background:'+bg+';display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;box-shadow:'+(active?'0 0 20px rgba(34,197,94,0.5)':'none')+'">'+steps[i].icon+'</div>';h+='<div style="margin-left:15px;flex:1"><div style="font-weight:'+(active?'700':'500')+';font-size:'+(active?'16px':'14px')+'">'+steps[i].label+'</div>'+(active?'<div style="font-size:12px;color:#22c55e;margin-top:2px">In progress...</div>':'')+'</div>';if(done)h+='<div style="color:#22c55e;font-size:18px">\u2713</div>';h+='</div>';if(i<steps.length-1){h+='<div style="width:2px;height:24px;margin-left:24px;background:'+(i<currentIdx?'#22c55e':'#333')+'"></div>';}}}h+='</div>';h+='<div style="text-align:center;margin-top:20px"><div onclick="document.getElementById(\'order-tracker-wrap\').remove()" style="display:inline-block;padding:12px 30px;background:#333;border-radius:12px;cursor:pointer;font-weight:600">Close</div></div>';inner.innerHTML=h;}
 function showSuggestions(val) {}
 function selectSuggestion(val) {}
 
@@ -5009,6 +5014,9 @@ function showOrderConfirmModal(name, phone, total, type) {
     ? '<div style="font-size:12px;color:var(--muted2);margin-top:4px;">📍 ' + deliveryAddress.street + ', ' + deliveryAddress.city + '</div>' : '';
 
   const html = `
+  <div style="text-align:center;margin:10px 0">
+    <div onclick="showOrderTracker()" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:30px;font-weight:700;font-size:15px;cursor:pointer;letter-spacing:0.5px;box-shadow:0 4px 15px rgba(37,99,235,0.4)">📍 Track My Order</div>
+  </div>
   <div id="ocm-overlay" onclick="closeOrderConfirmModal()" style="position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:800;backdrop-filter:blur(6px);"></div>
   <div id="ocm-modal" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100vw-24px));background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:24px;z-index:801;padding:28px 24px;max-height:90vh;overflow-y:auto;">
     <div style="text-align:center;margin-bottom:20px;">
@@ -5049,7 +5057,7 @@ function closeOrderConfirmModal() {
   showPage('home');
 }
 
-// Legacy stub — kept so old references don't crash
+h// Legacy stub — kept so old references don't crash
 // ── SCHEDULE MODE ─────────────────────
 var scheduleMode = 'asap';
 var scheduledFor = null;
