@@ -4221,7 +4221,7 @@ function showPage(name) {
 // ══════════════════════════════════
 // ORDER TYPE + ADDRESS
 // ══════════════════════════════════
-let orderType = 'pickup';
+var orderType = 'pickup';
 const STORE = {
   name: 'Super Deal Pizza & Wings',
   addr: '15 Martin Street',
@@ -4882,8 +4882,8 @@ subtotal: Math.round((sub || 0) * 100) / 100,
     is_scheduled: !!scheduledFor
     };
     // Write order directly to Supabase
-    const _supaUrl = 'https://qllrjizfyuxotgnybrzt.supabase.co';
-    const _supaKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI';
+    var _supaUrl = 'https://qllrjizfyuxotgnybrzt.supabase.co';
+    var _supaKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI';
     // Insert order
     const _orderPayload = {
       customer_name: payload.customer_name,
@@ -6115,19 +6115,43 @@ const PROMO_CODES = {
 };
 let appliedPromo = null;
 function applyPromo() {
-  const input = document.getElementById('promo-input');
-  if (!input) return;
-  const code = input.value.trim().toUpperCase();
-  const promo = PROMO_CODES[code];
-  if (promo) {
-    appliedPromo = {...promo, code};
-    showToast('✅ Promo applied: '+promo.label);
-    renderCart();
-  } else {
-    showToast('❌ Invalid promo code', 'red');
-    appliedPromo = null;
+    var input = document.getElementById('promo-input');
+    if (!input) return;
+    var code = input.value.trim().toUpperCase();
+    if (!code) { showToast('Enter a promo code', '#e74c3c'); return; }
+    var promo = PROMO_CODES[code];
+    if (!promo) { showToast('Invalid promo code', '#e74c3c'); return; }
+    // Check order type restriction from database
+    if (typeof _supaUrl !== 'undefined' && typeof _supaKey !== 'undefined') {
+      fetch(_supaUrl + '/rest/v1/deals?code=eq.' + code + '&select=order_type,active', {
+        headers: {'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey}
+      }).then(function(r) { return r.json(); }).then(function(deals) {
+        if (deals && deals.length > 0) {
+          var deal = deals[0];
+          if (!deal.active) { showToast('This deal is no longer active', '#e74c3c'); return; }
+          var ot = deal.order_type || 'all';
+          var currentType = (typeof orderType !== 'undefined') ? orderType : 'pickup';
+          if (ot !== 'all' && ot !== currentType) {
+            showToast('This deal is for ' + ot + ' orders only!', '#e74c3c'); return;
+          }
+        }
+        promo.code = code;
+        window._activePromo = promo;
+        showToast('Promo applied: ' + (promo.label || code), '#22c55e');
+        renderCart();
+      }).catch(function() {
+        promo.code = code;
+        window._activePromo = promo;
+        showToast('Promo applied: ' + (promo.label || code), '#22c55e');
+        renderCart();
+      });
+    } else {
+      promo.code = code;
+      window._activePromo = promo;
+      showToast('Promo applied: ' + (promo.label || code), '#22c55e');
+      renderCart();
+    }
   }
-}
 
 // ══════════════════════════════════
 // TOAST
