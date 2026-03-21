@@ -7202,9 +7202,19 @@ updateFloatingCart();
 
 // === Expose key variables to window for tracker/promo ===
 (function(){
-  if(typeof _supaUrl !== 'undefined') window._supaUrl = _supaUrl;
-  if(typeof _supaKey !== 'undefined') window._supaKey = _supaKey;
-  if(typeof orderType !== 'undefined') window.orderType = orderType;
+  // Try direct references first
+  try { if(typeof _supaUrl !== 'undefined') window._supaUrl = _supaUrl; } catch(e){}
+  try { if(typeof _supaKey !== 'undefined') window._supaKey = _supaKey; } catch(e){}
+  try { if(typeof orderType !== 'undefined') window.orderType = orderType; } catch(e){}
+  // Fallback: extract from script source
+  if(!window._supaUrl || !window._supaKey){
+    var ss=document.querySelectorAll('script');
+    for(var i=0;i<ss.length;i++){
+      var tx=ss[i].textContent||'';
+      if(!window._supaUrl){var m=tx.match(/supaUrl\s*=\s*['"]([^'"]+)['"]/);if(m)window._supaUrl=m[1];}
+      if(!window._supaKey){var k=tx.match(/supaKey\s*=\s*['"]([^'"]+)['"]/);if(k)window._supaKey=k[1];}
+    }
+  }
 })();
 </script>
 </div><!-- /app -->
