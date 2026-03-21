@@ -6137,7 +6137,7 @@ function applyPromo() {
       }
     }
     if (deal.discount_type === 'percentage') {
-      appliedPromo = { type: 'percent', discount: deal.discount_value, code: deal.code };
+      appliedPromo = { type: 'percent', discount: deal.discount_value / 100, code: deal.code };
       renderCart();
       showToast('Promo applied: ' + deal.discount_value + '% off!', 'success');
     } else if (deal.discount_type === 'fixed') {
