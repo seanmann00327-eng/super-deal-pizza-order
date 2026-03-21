@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+h<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -17,7 +17,7 @@
 <link rel="canonical" href="https://superdealpizza.ca">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <meta name="geo.region" content="CA-ON">
-<meta name="geo.placename" content="Milton, Ontario">
+<meta name="geo.placename" content="Milton, Ontario">h
 <meta name="geo.position" content="43.5183;-79.8774">
 <meta name="ICBM" content="43.5183, -79.8774">h
 
@@ -4935,7 +4935,7 @@ const _orderItems = _items.map(item => {
                   quantity: item.quantity || item.qty || 1,
                   unit_price: item.unit_price || item.price || 0,
                   subtotal: (item.unit_price || item.price || 0) * (item.quantity || item.qty || 1),
-                  customizations: d ? { detail: d } : null,
+                  price: item.unit_price || item.price || 0, total_price: (item.unit_price || item.price || 0) * (item.quantity || item.qty || 1), customizations: d ? { detail: d } : null,
                   size: isPizza && parts[0] ? parts[0] : null,
                   crust: isPizza && parts[1] ? parts[1] : null,
                   sauce: isPizza && parts[2] ? parts[2] : null,
