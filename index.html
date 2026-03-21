@@ -4222,6 +4222,7 @@ function showPage(name) {
 // ORDER TYPE + ADDRESS
 // ══════════════════════════════════
 var orderType = 'pickup';
+    window.orderType = orderType;
 const STORE = {
   name: 'Super Deal Pizza & Wings',
   addr: '15 Martin Street',
@@ -4884,6 +4885,7 @@ subtotal: Math.round((sub || 0) * 100) / 100,
     // Write order directly to Supabase
     var _supaUrl = 'https://qllrjizfyuxotgnybrzt.supabase.co';
     var _supaKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI';
+    window._supaUrl = _supaUrl; window._supaKey = _supaKey;
     // Insert order
     const _orderPayload = {
       customer_name: payload.customer_name,
@@ -7196,6 +7198,13 @@ updateFloatingCart();
   function loadH(ph){return fetch(API+'/orders?customer_phone='+encodeURIComponent(ph)+'&limit=3').then(function(r){return r.ok?r.json():null;}).then(function(data){if(!data||!data.orders||!data.orders.length)return null;var seen={},items=[];for(var o=0;o<data.orders.length;o++){var ois=data.orders[o].order_items||[];for(var j=0;j<ois.length;j++){var it=ois[j];if(!seen[it.name]){seen[it.name]=1;items.push({name:it.name,detail:(it.size||'').replace(/\n/g,' \u00B7 ').substring(0,60),price:it.price||0,qty:it.quantity||1});if(items.length>=4)break;}}if(items.length>=4)break;}return items.length?items:null;}).catch(function(){return null;});}
   window.renderReorderSection=function(){try{var s=localStorage.getItem('sdp_customer');if(!s)return;var c=JSON.parse(s);if(!c||!c.phone)return;if(c.items&&c.items.length)window.renderReorderItems(c.items);loadH(c.phone).then(function(items){if(items&&items.length){window.renderReorderItems(items);c.items=items;localStorage.setItem('sdp_customer',JSON.stringify(c));}});}catch(e){}};
   window.renderReorderSection();
+})();
+
+// === Expose key variables to window for tracker/promo ===
+(function(){
+  if(typeof _supaUrl !== 'undefined') window._supaUrl = _supaUrl;
+  if(typeof _supaKey !== 'undefined') window._supaKey = _supaKey;
+  if(typeof orderType !== 'undefined') window.orderType = orderType;
 })();
 </script>
 </div><!-- /app -->
