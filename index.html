@@ -10,16 +10,16 @@
 <meta name="apple-mobile-web-app-title" content="Super Deal Pizza">
 <meta name="mobile-web-app-capable" content="yes">
 
-<!-- SEO -->h
+<!-- SEO -->
 <title>Super Deal Pizza & Wings Milton | Halal Pizza Delivery & Pickup | Order Online</title>
 <meta name="description" content="Super Deal Pizza & Whings in Milton, Ontario. Family-owned since 2002. Fresh halal pizza options, wings, and amazing deals. Delivery 30-50 min or free pickup 15-20 min. Catering available for parties & events. Order online or call 905-876-0222.">
 <meta name="keywords" content="pizza Milton, halal pizza Milton Ontario, pizza delivery Milton ON, wings delivery Milton, best pizza Milton, pizza deals Milton, catering Milton Ontario, party pizza Milton, Super Deal Pizza, pizza near me Milton, halal food Milton, game day pizza deals, UFC pizza, UFC fight nights Milton, pizza pickup Milton, cheap pizza Milton, family pizza deals, corporate catering Milton, late night pizza Milton, student pizza deals">
 <link rel="canonical" href="https://superdealpizza.ca">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <meta name="geo.region" content="CA-ON">
-<meta name="geo.placename" content="Milton, Ontario">h
+<meta name="geo.placename" content="Milton, Ontario">
 <meta name="geo.position" content="43.5183;-79.8774">
-<meta name="ICBM" content="43.5183, -79.8774">h
+<meta name="ICBM" content="43.5183, -79.8774">
 
 <!-- Open Graph / Social -->
 <meta property="og:type" content="restaurant">
@@ -6117,43 +6117,44 @@ const PROMO_CODES = {
 };
 let appliedPromo = null;
 function applyPromo() {
-    var input = document.getElementById('promo-input');
-    if (!input) return;
-    var code = input.value.trim().toUpperCase();
-    if (!code) { showToast('Enter a promo code', '#e74c3c'); return; }
-    var promo = PROMO_CODES[code];
-    if (!promo) { showToast('Invalid promo code', '#e74c3c'); return; }
-    // Check order type restriction from database
-    if (typeof _supaUrl !== 'undefined' && typeof _supaKey !== 'undefined') {
-      fetch(_supaUrl + '/rest/v1/deals?code=eq.' + code + '&select=order_type,active', {
-        headers: {'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey}
-      }).then(function(r) { return r.json(); }).then(function(deals) {
-        if (deals && deals.length > 0) {
-          var deal = deals[0];
-          if (!deal.active) { showToast('This deal is no longer active', '#e74c3c'); return; }
-          var ot = deal.order_type || 'all';
-          var currentType = (typeof orderType !== 'undefined') ? orderType : 'pickup';
-          if (ot !== 'all' && ot !== currentType) {
-            showToast('This deal is for ' + ot + ' orders only!', '#e74c3c'); return;
-          }
-        }
-        promo.code = code;
-        window._activePromo = promo;
-        showToast('Promo applied: ' + (promo.label || code), '#22c55e');
-        renderCart();
-      }).catch(function() {
-        promo.code = code;
-        window._activePromo = promo;
-        showToast('Promo applied: ' + (promo.label || code), '#22c55e');
-        renderCart();
-      });
-    } else {
-      promo.code = code;
-      window._activePromo = promo;
-      showToast('Promo applied: ' + (promo.label || code), '#22c55e');
-      renderCart();
+  var input = document.getElementById('promo-input');
+  var code = (input && input.value) ? input.value.trim().toUpperCase() : '';
+  if (!code) { showToast('Enter a promo code', 'error'); return; }
+  var url = window._supaUrl;
+  var key = window._supaKey;
+  if (!url || !key) { showToast('Invalid promo code', 'error'); return; }
+  fetch(url + '/rest/v1/deals?select=*&code=eq.' + code, {
+    headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data || data.length === 0) { showToast('Invalid promo code', 'error'); return; }
+    var deal = data[0];
+    if (!deal.is_active) { showToast('This deal is no longer active', 'error'); return; }
+    var currentType = window.orderType || 'pickup';
+    if (deal.order_type && deal.order_type !== 'all') {
+      if (deal.order_type !== currentType) {
+        showToast('This deal is for ' + deal.order_type + ' orders only!', 'error');
+        return;
+      }
     }
-  }
+    if (deal.discount_type === 'percentage') {
+      appliedPromo = { type: 'percent', discount: deal.discount_value, code: deal.code };
+      renderCart();
+      showToast('Promo applied: ' + deal.discount_value + '% off!', 'success');
+    } else if (deal.discount_type === 'fixed') {
+      appliedPromo = { type: 'fixed', discount: deal.discount_value, code: deal.code };
+      renderCart();
+      showToast('Promo applied: $' + deal.discount_value + ' off!', 'success');
+    } else if (deal.discount_type === 'free_delivery') {
+      appliedPromo = { type: 'free_delivery', discount: 0, code: deal.code };
+      renderCart();
+      showToast('Promo applied: Free Delivery!', 'success');
+    } else {
+      appliedPromo = { type: deal.discount_type, discount: deal.discount_value || 0, code: deal.code };
+      renderCart();
+      showToast('Promo applied: ' + deal.name, 'success');
+    }
+  }).catch(function(e) { showToast('Invalid promo code', 'error'); });
+}
 
 // ══════════════════════════════════
 // TOAST
