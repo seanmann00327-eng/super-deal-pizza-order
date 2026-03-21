@@ -4844,14 +4844,15 @@ async function initiatePayment() {
   document.getElementById('payment-loading-overlay').style.display = 'flex';
 
   try {
-    const orderItems = cart.map(i => ({
-      name: i.name,
-      size: (i.detail || 'regular'),
-      quantity: i.qty,
-      unit_price: i.price,
-      price: i.price,
-      total_price: Math.round(i.price * i.qty * 100) / 100
-    }));
+const orderItems = cart.map(i => ({
+              name: i.name,
+              detail: i.detail || '',
+              size: (i.detail || 'regular'),
+              quantity: i.qty,
+              unit_price: i.price,
+              price: i.price,
+              total_price: Math.round(i.price * i.qty * 100) / 100
+  }));
     const payload = {
       customer_name: name,
       customer_phone: phoneDigits,
@@ -4860,13 +4861,13 @@ async function initiatePayment() {
       delivery_address: orderType === 'delivery' ? deliveryAddress : null,
       items: orderItems,
       order_items: orderItems,
-      subtotal: Math.round((total - tax - tip - deliveryFee + promoDisc) * 100) / 100,
-      delivery_fee: Math.round(deliveryFee * 100) / 100,
-      tax_amount: Math.round(tax * 100) / 100,
-      tax: Math.round(tax * 100) / 100,
-      tip_amount: Math.round(tip * 100) / 100,
-      discount: Math.round(promoDisc * 100) / 100,
-      total: Math.round(total * 100) / 100,
+subtotal: Math.round((total - tax - (tip||0) - deliveryFee + (promoDisc||0)) * 100) / 100 || 0,
+              delivery_fee: Math.round((deliveryFee||0) * 100) / 100,
+              tax_amount: Math.round((tax||0) * 100) / 100,
+              tax: Math.round((tax||0) * 100) / 100,
+              tip_amount: Math.round((tip||0) * 100) / 100,
+              discount: Math.round((promoDisc||0) * 100) / 100,
+              total: Math.round((total||0) * 100) / 100,
       payment_method: 'cash',
       payment_status: 'pending',
       status: 'pending',
