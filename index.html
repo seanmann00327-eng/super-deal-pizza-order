@@ -12,7 +12,7 @@
 
 <!-- SEO -->h
 <title>Super Deal Pizza & Wings Milton | Halal Pizza Delivery & Pickup | Order Online</title>
-<meta name="description" content="Super Deal Pizza & Wings in Milton, Ontario. Family-owned since 2002. Fresh halal pizza options, wings, and amazing deals. Delivery 30-50 min or free pickup 15-20 min. Catering available for parties & events. Order online or call 905-876-0222.">
+<meta name="description" content="Super Deal Pizza & Whings in Milton, Ontario. Family-owned since 2002. Fresh halal pizza options, wings, and amazing deals. Delivery 30-50 min or free pickup 15-20 min. Catering available for parties & events. Order online or call 905-876-0222.">
 <meta name="keywords" content="pizza Milton, halal pizza Milton Ontario, pizza delivery Milton ON, wings delivery Milton, best pizza Milton, pizza deals Milton, catering Milton Ontario, party pizza Milton, Super Deal Pizza, pizza near me Milton, halal food Milton, game day pizza deals, UFC pizza, UFC fight nights Milton, pizza pickup Milton, cheap pizza Milton, family pizza deals, corporate catering Milton, late night pizza Milton, student pizza deals">
 <link rel="canonical" href="https://superdealpizza.ca">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
@@ -4915,14 +4915,39 @@ async function initiatePayment() {
     // Insert order items
     const _items = payload.order_items || payload.items || [];
     if (_items.length > 0 && _order && _order.id) {
-      const _orderItems = _items.map(item => ({
-        order_id: _order.id,
-        item_name: item.name || 'Item',
-        quantity: item.quantity || item.qty || 1,
-        unit_price: item.unit_price || item.price || 0,
-        subtotal: (item.unit_price || item.price || 0) * (item.quantity || item.qty || 1),
-        customizations: item.detail ? { detail: item.detail } : null
-      }));
+const _orderItems = _items.map(item => {
+                const d = item.detail || '';
+                const parts = d.split('|').map(s => s.trim());
+                const isPizza = (item.name || '').toLowerCase().includes('pizza') || (item.name || '').toLowerCase().includes('deal');
+                const isWings = (item.name || '').toLowerCase().includes('wing');
+                const isHH = d.includes('HALF & HALF') || d.includes('half_and_half');
+                let left_t = [], right_t = [];
+                if (isHH) {
+                  const lm = d.match(/Left Half:\s*(.+)/i);
+                  const rm = d.match(/Right Half:\s*(.+)/i);
+                  if (lm) left_t = lm[1].split(',').map(s => s.trim());
+                  if (rm) right_t = rm[1].split(',').map(s => s.trim());
+  }
+                const obj = {
+                  order_id: _order.id,
+                  item_name: item.name || 'Item',
+                  quantity: item.quantity || item.qty || 1,
+                  unit_price: item.unit_price || item.price || 0,
+                  subtotal: (item.unit_price || item.price || 0) * (item.quantity || item.qty || 1),
+                  customizations: d ? { detail: d } : null,
+                  size: isPizza && parts[0] ? parts[0] : null,
+                  crust: isPizza && parts[1] ? parts[1] : null,
+                  sauce: isPizza && parts[2] ? parts[2] : null,
+                  cheese: isPizza && parts[3] ? parts[3] : null,
+                  is_half_half: isHH,
+                  toppings: isPizza && !isHH && parts.length > 4 ? parts.slice(4) : [],
+                  first_half_toppings: isHH ? left_t : null,
+                  second_half_toppings: isHH ? right_t : null,
+                  wings_sauce: isWings ? (d.match(/^([^·]+)/)||[])[1]?.trim() || null : null,
+                  notes: item.notes || null
+  };
+                return obj;
+  });
       fetch(_supaUrl + '/rest/v1/order_items', {
         method: 'POST',
         headers: { 'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey, 'Content-Type': 'application/json' },
