@@ -4861,7 +4861,7 @@ const orderItems = cart.map(i => ({
       delivery_address: orderType === 'delivery' ? deliveryAddress : null,
       items: orderItems,
       order_items: orderItems,
-subtotal: Math.round((total - tax - (tip||0) - deliveryFee + (promoDisc||0)) * 100) / 100 || 0,
+subtotal: Math.round((sub || 0) * 100) / 100,
               delivery_fee: Math.round((deliveryFee||0) * 100) / 100,
               tax_amount: Math.round((tax||0) * 100) / 100,
               tax: Math.round((tax||0) * 100) / 100,
@@ -4956,6 +4956,37 @@ const _orderItems = _items.map(item => {
       }).catch(() => {});
     }
     const data = { success: true, order_id: _order ? _order.id : null };
+
+          // — Upsert customer record —
+          try {
+            const _custPhone = phoneDigits.replace(/\D/g, '');
+            const _custCheck = await fetch(_supaUrl + '/rest/v1/customers?phone=eq.' + _custPhone + '&select=id,total_orders,total_spent', {
+              headers: { 'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey }
+  });
+            const _custRows = await _custCheck.json();
+            if (_custRows && _custRows.length > 0) {
+              // Update existing customer
+              const _cust = _custRows[0];
+              fetch(_supaUrl + '/rest/v1/customers?id=eq.' + _cust.id, {
+                method: 'PATCH',
+                headers: { 'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, total_orders: (_cust.total_orders || 0) + 1, total_spent: ((_cust.total_spent || 0) + (total || 0)), last_order_at: new Date().toISOString() })
+  }).catch(() => {});
+  } else {
+              // Create new customer
+              fetch(_supaUrl + '/rest/v1/customers', {
+                method: 'POST',
+                headers: { 'apikey': _supaKey, 'Authorization': 'Bearer ' + _supaKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+                body: JSON.stringify({ name: name, phone: _custPhone, email: null, total_orders: 1, total_spent: total || 0, is_active: true, loyalty_stamps: 1, loyalty_points: 0, last_order_at: new Date().toISOString() })
+  }).catch(() => {});
+  }
+  } catch(e) { console.log('Customer upsert error:', e); }
+
+          // — Store order for live tracking —
+          try {
+            const _trackingData = { order_id: _order ? _order.id : null, order_number: _order ? _order.order_number : null, status: 'pending', placed_at: new Date().toISOString() };
+            localStorage.setItem('sdp_active_order', JSON.stringify(_trackingData));
+  } catch(e) {}
     showOrderConfirmModal(name, phoneDigits, total, orderType);
     try {
       const orderItems = cart.map(function(i){ return { name: i.name, detail: i.size||i.detail||'', price: i.price||0, qty: i.qty||1 }; });
