@@ -4288,7 +4288,7 @@ function renderAddressBlock() {
       <div onclick="openAddrModal()" style="cursor:pointer;text-align:center;padding:10px 0 6px;">
         <div style="font-size:40px;margin-bottom:8px;">📍</div>
         <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:#fff;margin-bottom:6px;">Add Delivery Address</div>
-        <div style="font-size:13px;color:var(--muted2);margin-bottom:14px;line-height:1.5;">Tap to search and select your address from verified Milton-area addresses.</div>
+        <div style="font-size:13px;color:var(--muted2);margin-bottom:14px;line-height:1.5;">Search any address in Milton — we verify it in real-time with Google-powered lookup.</div>
         <div style="display:inline-block;background:var(--red);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;letter-spacing:2px;padding:12px 28px;border-radius:12px;box-shadow:0 4px 16px rgba(232,32,26,0.4);">ENTER ADDRESS 📍</div>
         <div style="margin-top:12px;font-size:12px;color:var(--muted);">Delivery to Milton, Campbellville &amp; Halton Hills</div>
       </div>`;
@@ -4385,11 +4385,104 @@ function closeAddrModal() {
   document.getElementById('addrModal').style.display = 'none';
   document.body.style.overflow = '';
 }
+// ── LIVE ADDRESS AUTOCOMPLETE (Nominatim/OpenStreetMap) ──
+let _addrDebounce = null;
+let _addrCache = {};
+
 function addrModalSearch(val) {
-  document.getElementById('addr-modal-results').innerHTML = renderAddrSuggestions(val);
+  const query = val.trim();
+  // Show local results immediately for fast feedback
+  document.getElementById('addr-modal-results').innerHTML = renderAddrSuggestions(query);
+  
+  // If query is long enough, also search Nominatim for real addresses
+  if (query.length >= 3) {
+    clearTimeout(_addrDebounce);
+    _addrDebounce = setTimeout(() => fetchNominatimAddresses(query), 350);
+  }
 }
+
+function fetchNominatimAddresses(query) {
+  const cacheKey = query.toLowerCase();
+  if (_addrCache[cacheKey]) {
+    renderNominatimResults(query, _addrCache[cacheKey]);
+    return;
+  }
+  // Search Nominatim restricted to Milton, Ontario area (bounded box)
+  // Milton ON approximate bounds: lat 43.47-43.56, lon -79.95 to -79.82
+  const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+    q: query + ', Milton, Ontario, Canada',
+    format: 'json',
+    addressdetails: 1,
+    limit: 8,
+    countrycodes: 'ca',
+    viewbox: '-79.95,43.56,-79.82,43.47',
+    bounded: 1
+  });
+  
+  fetch(url, { headers: { 'Accept-Language': 'en' } })
+    .then(r => r.json())
+    .then(results => {
+      _addrCache[cacheKey] = results;
+      renderNominatimResults(query, results);
+    })
+    .catch(err => console.warn('Address lookup failed:', err));
+}
+
+function renderNominatimResults(query, results) {
+  const container = document.getElementById('addr-modal-results');
+  if (!container) return;
+  
+  // Filter to only addresses with a house number (real street addresses)
+  const validResults = results.filter(r => 
+    r.address && r.address.house_number && r.address.road
+  );
+  
+  // Also filter to delivery zone cities
+  const deliveryCities = ['milton', 'campbellville', 'halton hills', 'acton', 'georgetown'];
+  const zoneResults = validResults.filter(r => {
+    const city = (r.address.city || r.address.town || r.address.village || r.address.hamlet || '').toLowerCase();
+    return deliveryCities.some(c => city.includes(c));
+  });
+  
+  if (zoneResults.length === 0) {
+    // Show local matches + message
+    const localHTML = renderAddrSuggestions(query);
+    const noRemote = '<div style="text-align:center;padding:12px;color:var(--muted2);font-size:12px;border-top:1px solid rgba(255,255,255,0.06);margin-top:8px;">🔍 No verified addresses found for "<strong>' + query.replace(/</g,'&lt;') + '</strong>"<br><span style="font-size:11px;">Try a different street name or enter manually</span></div>';
+    container.innerHTML = localHTML + noRemote;
+    return;
+  }
+  
+  // Build results HTML
+  let html = '<div style="padding:6px 14px 4px;font-size:11px;color:var(--gold);font-weight:700;letter-spacing:1px;text-transform:uppercase;">✅ Verified Addresses</div>';
+  html += zoneResults.map(r => {
+    const num = r.address.house_number || '';
+    const road = r.address.road || '';
+    const street = num + ' ' + road;
+    const city = r.address.city || r.address.town || r.address.village || 'Milton';
+    const postcode = r.address.postcode || '';
+    return `<div onclick="selectVerifiedAddr('${street.replace(/'/g,"\\'")}','${city.replace(/'/g,"\\'")}','${postcode}')"
+      style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;transition:background .15s;margin-bottom:4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);"
+      onmousedown="this.style.background='rgba(34,197,94,0.15)'" onmouseup="this.style.background='rgba(34,197,94,0.06)'">
+      <span style="font-size:20px;flex-shrink:0;">✅</span>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#fff;">${street}</div>
+        <div style="font-size:12px;color:var(--muted2);">${city}, ON ${postcode ? '&nbsp;·&nbsp; ' + postcode : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  
+  // Also show local matches below
+  const localMatches = renderAddrSuggestions(query);
+  if (localMatches.includes('📍')) {
+    html += '<div style="padding:8px 14px 4px;font-size:11px;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-top:8px;border-top:1px solid rgba(255,255,255,0.06);">Quick Select</div>';
+    html += localMatches;
+  }
+  
+  container.innerHTML = html;
+}
+
 function renderAddrSuggestions(val) {
-  const query = val.trim().toLowerCase();
+  const query = (typeof val === 'string' ? val : '').trim().toLowerCase();
   let matches;
   if (!query || query.length < 2) {
     matches = MILTON_ADDRESSES.slice(0, 8);
@@ -4403,7 +4496,7 @@ function renderAddrSuggestions(val) {
     return `<div style="text-align:center;padding:16px;color:var(--muted2);font-size:13px;">No matches found.<br><span onclick="toggleManualEntry()" style="color:var(--gold);cursor:pointer;text-decoration:underline;">Enter manually</span></div>`;
   }
   return matches.map(a => `
-    <div onclick="selectVerifiedAddr('${a.street.replace(/'/g,"\'")}','${a.city}','${a.postal}')"
+    <div onclick="selectVerifiedAddr('${a.street.replace(/'/g,"\\'")}','${a.city}','${a.postal}')"
       style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;transition:background .15s;margin-bottom:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);"
       onmousedown="this.style.background='rgba(232,32,26,0.12)'" onmouseup="this.style.background='rgba(255,255,255,0.04)'">
       <span style="font-size:20px;flex-shrink:0;">📍</span>
