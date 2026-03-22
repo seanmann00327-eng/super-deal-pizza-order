@@ -1607,13 +1607,19 @@ input[type=number] { -moz-appearance: textfield; }
 </style>
 <script>
 /* SDP: Store settings loaded from Supabase - allows admin to control fees/rates */
-window.sdpSettings = {delivery_fee:3.99,free_delivery_over:35.00,min_order_delivery:15.00,tax_rate:0.13,delivery_time_min:30,delivery_time_max:40,pickup_time_min:10,pickup_time_max:15};
+window.sdpSettings = {delivery_fee:5.00,free_delivery_over:15.00,min_order_delivery:15.00,tax_rate:0.13,delivery_time_min:30,delivery_time_max:40,pickup_time_min:10,pickup_time_max:15};
 (function() {
   fetch('https://qllrjizfyuxotgnybrzt.supabase.co/rest/v1/settings?select=key,value', {
     headers: {'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI'}
   }).then(r => r.json()).then(rows => {
     rows.forEach(r => { window.sdpSettings[r.key] = parseFloat(r.value) || r.value; });
   }).catch(() => {});
+  // Also sync from admin_settings (primary source when admin changes settings)
+  fetch('https://qllrjizfyuxotgnybrzt.supabase.co/rest/v1/admin_settings?select=tax_rate,delivery_fee,free_delivery_min&limit=1', {
+    headers: {'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI'}
+  }).then(r=>r.json()).then(rows=>{
+    if(rows&&rows[0]){const s=rows[0];if(s.delivery_fee!=null)window.sdpSettings.delivery_fee=parseFloat(s.delivery_fee);if(s.tax_rate!=null)window.sdpSettings.tax_rate=parseFloat(s.tax_rate);if(s.free_delivery_min!=null)window.sdpSettings.free_delivery_over=parseFloat(s.free_delivery_min);}
+  }).catch(()=>{});
 })();
 </script>
 </head>
