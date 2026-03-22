@@ -134,7 +134,7 @@
       const validPrefixes = ['L9T'];
       if (postal && !validPrefixes.includes(postalClean.slice(0,3))) {
         document.getElementById('addr-modal-results').innerHTML =
-          `<div style="color:var(--red);font-size:13px;padding:10px;background:rgba(232,32,26,0.1);border-radius:8px;">⚠ We only deliver within Milton, Campbellville, Acton, and Georgetown (Halton Region). Postal code ${postalClean.slice(0,3)} is outside our zone.</div>`;
+          `<div style="color:var(--red);font-size:13px;padding:10px;background:rgba(232,32,26,0.1);border-radius:8px;">⚠ We only deliver within Milton, ON. Postal code ${postalClean.slice(0,3)} is outside our zone.</div>`;
         return;
       }
       // Auto-confirm the address
@@ -4297,7 +4297,7 @@ function renderAddressBlock() {
         <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:#fff;margin-bottom:6px;">Add Delivery Address</div>
         <div style="font-size:13px;color:var(--muted2);margin-bottom:14px;line-height:1.5;">Search any address in Milton — we verify it in real-time with Google-powered lookup.</div>
         <div style="display:inline-block;background:var(--red);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;letter-spacing:2px;padding:12px 28px;border-radius:12px;box-shadow:0 4px 16px rgba(232,32,26,0.4);">ENTER ADDRESS 📍</div>
-        <div style="margin-top:12px;font-size:12px;color:var(--muted);">Delivery to Milton, Campbellville &amp; Halton Hills</div>
+        <div style="margin-top:12px;font-size:12px;color:var(--muted);">Delivery to Milton, ON only</div>
       </div>`;
     return;
 
@@ -4448,7 +4448,7 @@ function renderNominatimResults(query, results) {
   const deliveryCities = ['milton'];
   const zoneResults = validResults.filter(r => {
     const city = (r.address.city || r.address.town || r.address.village || r.address.hamlet || '').toLowerCase();
-    return deliveryCities = ['milton'];
+    return deliveryCities.some(c => city.includes(c));
   const validPrefixes = ['L9T'];
   const streetOk = /^\d+\s+[A-Za-z]/.test(s) && s.length >= 6;
   const cityOk   = validCities.some(ct => ci.toLowerCase().includes(ct));
@@ -4483,7 +4483,7 @@ async function confirmManualAddr() {
 
   const validCities = ['milton','campbellville','halton hills','acton','georgetown'];
   if (!validCities.some(ct => city.toLowerCase().includes(ct))) {
-    showErr('⚠ We deliver to Milton, Campbellville, Halton Hills & surrounding areas only', 'am-city'); return;
+    showErr('⚠ We only deliver within Milton, ON', 'am-city'); return;
   }
 
   const postalClean = postal.replace(/\s/,'');
