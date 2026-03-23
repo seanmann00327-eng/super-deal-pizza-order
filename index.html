@@ -849,7 +849,6 @@ body{
   border-radius:12px;padding:10px 6px;
   display:flex;flex-direction:column;align-items:center;gap:4px;
   cursor:pointer;transition:all .18s;text-align:center;
-  -webkit-tap-highlight-color:rgba(255,68,0,0.15);touch-action:manipulation;
 }
 .top-chip:active{transform:scale(.92);}
 .top-chip.sel{background:rgba(232,32,26,0.12);border-color:var(--red);}
@@ -4449,6 +4448,107 @@ function renderNominatimResults(query, results) {
   const zoneResults = validResults.filter(r => {
     const city = (r.address.city || r.address.town || r.address.village || r.address.hamlet || '').toLowerCase();
     return deliveryCities.some(c => city.includes(c));
+  });
+  
+  if (zoneResults.length === 0) {
+    // Show local matches + message
+    const localHTML = renderAddrSuggestions(query);
+    const noRemote = '<div style="text-align:center;padding:12px;color:var(--muted2);font-size:12px;border-top:1px solid rgba(255,255,255,0.06);margin-top:8px;">🔍 No verified addresses found for "<strong>' + query.replace(/</g,'&lt;') + '</strong>"<br><span style="font-size:11px;">Try a different street name or enter manually</span></div>';
+    container.innerHTML = localHTML + noRemote;
+    return;
+  }
+  
+  // Build results HTML
+  let html = '<div style="padding:6px 14px 4px;font-size:11px;color:var(--gold);font-weight:700;letter-spacing:1px;text-transform:uppercase;">✅ Verified Addresses</div>';
+  html += zoneResults.map(r => {
+    const num = r.address.house_number || '';
+    const road = r.address.road || '';
+    const street = num + ' ' + road;
+    const city = r.address.city || r.address.town || r.address.village || 'Milton';
+    const postcode = r.address.postcode || '';
+    return `<div onclick="selectVerifiedAddr('${street.replace(/'/g,"\\'")}','${city.replace(/'/g,"\\'")}','${postcode}')"
+      style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;transition:background .15s;margin-bottom:4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);"
+      onmousedown="this.style.background='rgba(34,197,94,0.15)'" onmouseup="this.style.background='rgba(34,197,94,0.06)'">
+      <span style="font-size:20px;flex-shrink:0;">✅</span>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#fff;">${street}</div>
+        <div style="font-size:12px;color:var(--muted2);">${city}, ON ${postcode ? '&nbsp;·&nbsp; ' + postcode : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  
+  // Also show local matches below
+  const localMatches = renderAddrSuggestions(query);
+  if (localMatches.includes('📍')) {
+    html += '<div style="padding:8px 14px 4px;font-size:11px;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-top:8px;border-top:1px solid rgba(255,255,255,0.06);">Quick Select</div>';
+    html += localMatches;
+  }
+  
+  container.innerHTML = html;
+}
+
+function renderAddrSuggestions(val) {
+  const query = (typeof val === 'string' ? val : '').trim().toLowerCase();
+  let matches;
+  if (!query || query.length < 2) {
+    matches = MILTON_ADDRESSES.slice(0, 8);
+  } else {
+    matches = MILTON_ADDRESSES.filter(a =>
+      a.street.toLowerCase().includes(query) ||
+      a.postal.toLowerCase().includes(query)
+    ).slice(0, 10);
+  }
+  if (!matches.length) {
+    return `<div style="text-align:center;padding:16px;color:var(--muted2);font-size:13px;">No matches found.<br><span onclick="toggleManualEntry()" style="color:var(--gold);cursor:pointer;text-decoration:underline;">Enter manually</span></div>`;
+  }
+  return matches.map(a => `
+    <div onclick="selectVerifiedAddr('${a.street.replace(/'/g,"\\'")}','${a.city}','${a.postal}')"
+      style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;transition:background .15s;margin-bottom:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);"
+      onmousedown="this.style.background='rgba(232,32,26,0.12)'" onmouseup="this.style.background='rgba(255,255,255,0.04)'">
+      <span style="font-size:20px;flex-shrink:0;">📍</span>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#fff;">${a.street}</div>
+        <div style="font-size:12px;color:var(--muted2);">${a.city}, ON &nbsp;·&nbsp; ${a.postal}</div>
+      </div>
+    </div>`).join('');
+}
+function selectVerifiedAddr(street, city, postal) {
+  deliveryAddress.street  = street;
+  deliveryAddress.city    = city;
+  deliveryAddress.postal  = postal;
+  deliveryAddress._ts = deliveryAddress._tc = deliveryAddress._tp = true;
+  // Save to account if logged in
+  if (currentUser) {
+    currentUser.savedAddress = {street, city, postal, unit:'', instructions:''};
+    renderAccountPage();
+  }
+  closeAddrModal();
+  renderAddressBlock();
+  renderCart();
+  showToast('📍 Address saved: ' + street);
+}
+function toggleManualEntry() {
+  addrManualMode = !addrManualMode;
+  document.getElementById('addr-manual-fields').style.display = addrManualMode ? 'block' : 'none';
+  if (addrManualMode) {
+    document.getElementById('am-street').value  = deliveryAddress.street  || '';
+    document.getElementById('am-city').value    = deliveryAddress.city    || '';
+    document.getElementById('am-postal').value  = deliveryAddress.postal  || '';
+    document.getElementById('am-unit').value    = deliveryAddress.unit    || '';
+    document.getElementById('am-instructions').value = deliveryAddress.instructions || '';
+    manualAddrChanged();
+  }
+}
+function clearAddrErr(inp) {
+  const e = document.getElementById('addr-manual-err');
+  if (e) e.style.display='none';
+  inp.style.borderColor = '';
+}
+function manualAddrChanged() {
+  const s = document.getElementById('am-street').value.trim();
+  const ci = document.getElementById('am-city').value.trim();
+  const p = document.getElementById('am-postal').value.trim().toUpperCase().replace(/\s/,'');
+  const validCities = ['milton','campbellville','halton hills','acton','georgetown'];
   const validPrefixes = ['L9T'];
   const streetOk = /^\d+\s+[A-Za-z]/.test(s) && s.length >= 6;
   const cityOk   = validCities.some(ct => ci.toLowerCase().includes(ct));
@@ -4806,7 +4906,7 @@ async function initiatePayment() {
   // ── 2. Validate delivery address ──
   if (orderType === 'delivery') {
     const postalOk = /^L[0-9][A-Z][ ]?[0-9][A-Z][0-9]$/.test(deliveryAddress.postal || '') &&
-      ['L9T','L9C','L7J','L7G','L9E','L0P'].includes((deliveryAddress.postal||'').replace(/\s/,'').slice(0,3));
+      ['L9T'].includes((deliveryAddress.postal||'').replace(/\s/,'').slice(0,3));
     const streetOk = deliveryAddress.street && /^\d+\s+[A-Za-z]/.test(deliveryAddress.street) && deliveryAddress.street.length >= 6;
     const validCities = ['milton','campbellville','halton hills','acton','georgetown'];
     const cityOk = deliveryAddress.city && validCities.some(ct => deliveryAddress.city.toLowerCase().includes(ct));
@@ -7326,4 +7426,3 @@ updateFloatingCart();
 
 </body>
 </html>
-h
