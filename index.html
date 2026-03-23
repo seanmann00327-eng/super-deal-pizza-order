@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+h<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -19,7 +19,7 @@
 <meta name="geo.region" content="CA-ON">
 <meta name="geo.placename" content="Milton, Ontario">
 <meta name="geo.position" content="43.5183;-79.8774">
-<meta name="ICBM" content="43.5183, -79.8774">
+<meta name="ICBM" content="43.5183, -79.8774">h
 
 <!-- Open Graph / Social -->
 <meta property="og:type" content="restaurant">
@@ -4728,7 +4728,7 @@ function renderCart() {
     return;
   }
   const sub = cart.reduce((s,i) => s + i.price * i.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 3.99) : 0;
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 5) : 0;
   const promoDisc = appliedPromo
     ? (appliedPromo.type==='percent' ? sub*appliedPromo.discount : appliedPromo.discount)
     : 0;
@@ -4919,7 +4919,7 @@ async function initiatePayment() {
 
   // ── 3. Calculate totals ──
   const sub = cart.reduce((s,i) => s + i.price * i.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 3.99) : 0;
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 5) : 0;
   const promoDisc = appliedPromo ? (appliedPromo.type==='percent' ? sub*appliedPromo.discount : appliedPromo.discount) : 0;
   const taxable = Math.max(0, sub - promoDisc) + deliveryFee;
   const tax = taxable * (window.sdpSettings?.tax_rate || 0.13);
@@ -6608,7 +6608,7 @@ function redeemReward(pts) {
 function updateFloatingCart() {
   const count = cart.reduce((s,i) => s + i.qty, 0);
   const sub   = cart.reduce((s,i) => s + i.price * i.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 3.99) : 0;
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 5) : 0;
   const total = (sub + deliveryFee) * 1.13;
 
   // Floating bar
