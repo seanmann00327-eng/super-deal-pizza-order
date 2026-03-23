@@ -846,7 +846,7 @@ body{
 }
 .top-chip{
   background:var(--card);border:1.5px solid var(--border);
-  border-radius:12px;padding:10px 6px;
+  border-radius:12px;padding:12px 10px;touch-action:manipulation;min-height:44px;
   display:flex;flex-direction:column;align-items:center;gap:4px;
   cursor:pointer;transition:all .18s;text-align:center;
 }
@@ -5258,7 +5258,7 @@ function svgEl(tag, attrs) {
 
 // Master topping draw function — returns a <g> element
 function drawTopping(name, cx, cy, r, animDelay) {
-  const g = svgEl('g', {transform: `translate(${cx},${cy})`, class:'top-anim'});
+  const gWrap = svgEl('g', {transform: `translate(${cx},${cy})`}); const g = svgEl('g', {class:'top-anim'});
   g.style.animationDelay = animDelay + 's';
 
   const n = name.replace(/[🌙🌶️🔥]/g,'').trim().toLowerCase();
@@ -5503,7 +5503,7 @@ function drawTopping(name, cx, cy, r, animDelay) {
   const shadow = svgEl('ellipse', {cx:r*0.15,cy:r*0.9,rx:r*0.75,ry:r*0.22,fill:'rgba(0,0,0,0.28)'});
   g.insertBefore(shadow, g.firstChild);
 
-  return g;
+  gWrap.appendChild(g); return gWrap;
 }
 
 // ── HALF & HALF STATE ──
