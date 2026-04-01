@@ -5139,8 +5139,8 @@ const _orderItems = _items.map(item => {
   } catch(e) {}
     // Save customer info for after Stripe redirect
     try {
-      var orderItems = cart.map(function(i){ return { name: i.name, detail: i.size||i.detail||'', price: i.price||0, qty: i.qty||1 }; });
-      localStorage.setItem('sdp_customer', JSON.stringify({ phone: phoneDigits, name: name, items: orderItems, ts: Date.now() }));
+      var _orderItems = cart.map(function(i){ return { name: i.name, detail: i.size||i.detail||'', price: i.price||0, qty: i.qty||1 }; });
+      localStorage.setItem('sdp_customer', JSON.stringify({ phone: phoneDigits, name: name, items: _orderItems, ts: Date.now() }));
       localStorage.setItem('sdp_pending_order', JSON.stringify({ name: name, phone: phoneDigits, total: total, orderType: orderType, order_id: _order ? _order.id : null }));
       if (typeof renderReorderSection === 'function') renderReorderSection();
     } catch(e) {}
