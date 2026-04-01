@@ -5199,7 +5199,7 @@ const _orderItems = _items.map(item => {
     document.getElementById('payment-loading-overlay').style.display = 'none';
     const _payBtn = document.getElementById('pay-now-btn');
     if (_payBtn) _payBtn.disabled = false;
-    if (_payBtn) _payBtn.innerHTML = '💳 Pay Securely — 
+     if (_payBtn) _payBtn.innerHTML = 'Pay Securely - $' + total.toFixed(2);
 
 // ── ORDER CONFIRM MODAL (no-backend fallback) ─────────────────
 function showOrderConfirmModal(name, phone, total, type) {
