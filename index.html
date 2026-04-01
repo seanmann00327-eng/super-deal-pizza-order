@@ -93,13 +93,72 @@ h<!DOCTYPE hthml>
   // 2. Your backend URL — leave blank '' to disable online payment
   //    Local dev: 'http://localhost:3000'
   //    Production: 'https://api.superdealpizza.ca'  (see backend/README.md)
-  const BACKEND_URL = 'https://wonderful-griffin-e6e3b7.netlify.app/.netlify/functions';
+  const BACKEND_URL = 'https://qllrjizfyuxotgnybrzt.supabase.co/functions/v1';
 
   // 3. Your Stripe publishable key (from https://dashboard.stripe.com/apikeys)
   const STRIPE_PUB_KEY = 'pk_test_51T9ZIqRogq46hsTEjy1Zg8DNWhSBoWbHVZVnPCstuK2s7U05gpUnepIX9NMbYGj9DPh35WJhrPKEiwOiwRUtla5X00Lx0UbpeZ';
   // ────────────────────────────────────────────────────────────────────────
 
-  // Dynamically load Google Maps if key is configured
+  // ── STRIPE PAYMENT RETURN HANDLER ──────────────────────────────────────
+    (function handleStripeReturn() {
+      var urlParams = new URLSearchParams(window.location.search);
+      var paymentStatus = urlParams.get('payment');
+      var orderId = urlParams.get('order_id');
+
+      if (paymentStatus === 'success') {
+        var cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+
+        if (orderId) {
+          var _sUrl = 'https://qllrjizfyuxotgnybrzt.supabase.co';
+          var _sKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsbHJqaXpmeXV4b3Rnbnlicnp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTEwNTgsImV4cCI6MjA4OTM2NzA1OH0.M_pysml3oq9lZp6AMIU3R0WQRzokiosr_eNyjfBtdKI';
+          fetch(_sUrl + '/rest/v1/orders?id=eq.' + orderId, {
+            method: 'PATCH',
+            headers: { 'apikey': _sKey, 'Authorization': 'Bearer ' + _sKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payment_status: 'paid', payment_method: 'stripe' })
+          })['catch'](function(e) { console.log('Payment status update error:', e); });
+        }
+
+        window.addEventListener('DOMContentLoaded', function() {
+          try {
+            var pending = JSON.parse(localStorage.getItem('sdp_pending_order') || '{}');
+            if (pending.name) {
+              setTimeout(function() {
+                if (typeof showOrderConfirmModal === 'function') {
+                  showOrderConfirmModal(pending.name, pending.phone, pending.total || 0, pending.orderType || 'pickup');
+                }
+                if (typeof showToast === 'function') {
+                  showToast('Payment successful! Your order is confirmed.', 'green');
+                }
+                localStorage.removeItem('sdp_pending_order');
+                if (typeof cart !== 'undefined') { cart.length = 0; }
+                if (typeof renderCart === 'function') renderCart();
+              }, 500);
+            } else {
+              setTimeout(function() {
+                if (typeof showToast === 'function') {
+                  showToast('Payment successful! Your order is confirmed.', 'green');
+                }
+              }, 500);
+            }
+          } catch(e) { console.log('Payment return handler error:', e); }
+        });
+      } else if (paymentStatus === 'cancelled') {
+        var cleanUrl2 = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl2);
+
+        window.addEventListener('DOMContentLoaded', function() {
+          setTimeout(function() {
+            if (typeof showToast === 'function') {
+              showToast('Payment was cancelled. Your order is saved. You can try again or call us.', 'orange');
+            }
+            localStorage.removeItem('sdp_pending_order');
+          }, 500);
+        });
+      }
+    })();
+
+    // Dynamically load Google Maps if key is configured
   window.initGooglePlaces = function() {
     const input = document.getElementById('addr-modal-input');
     if (!input || typeof google === 'undefined') return;
@@ -5093,15 +5152,2376 @@ const _orderItems = _items.map(item => {
             const _trackingData = { order_id: _order ? _order.id : null, order_number: _order ? _order.order_number : null, status: 'pending', placed_at: new Date().toISOString() };
             localStorage.setItem('sdp_active_order', JSON.stringify(_trackingData));
   } catch(e) {}
-    showOrderConfirmModal(name, phoneDigits, total, orderType);
+    // Save customer info for after Stripe redirect
     try {
       const orderItems = cart.map(function(i){ return { name: i.name, detail: i.size||i.detail||'', price: i.price||0, qty: i.qty||1 }; });
       localStorage.setItem('sdp_customer', JSON.stringify({ phone: phoneDigits, name: name, items: orderItems, ts: Date.now() }));
+      localStorage.setItem('sdp_pending_order', JSON.stringify({ name: name, phone: phoneDigits, total: total, orderType: orderType, order_id: _order ? _order.id : null }));
       if (typeof renderReorderSection === 'function') renderReorderSection();
     } catch(e) {}
+
+    // Create Stripe Checkout Session via Edge Function
+    const _checkoutPayload = {
+      items: (payload.order_items || payload.items || []).map(function(i) {
+        return { name: i.name, quantity: i.quantity || i.qty || 1, unit_price: i.unit_price || i.price || 0 };
+      }),
+      customer_name: name,
+      customer_phone: phoneDigits,
+      order_type: orderType,
+      order_id: _order ? _order.id : null,
+      subtotal: payload.subtotal || 0,
+      delivery_fee: payload.delivery_fee || 0,
+      tax_amount: payload.tax_amount || 0,
+      tip_amount: payload.tip_amount || 0,
+      discount: payload.discount || 0,
+      total: payload.total || 0,
+    };
+
+    const _stripeResp = await fetch(BACKEND_URL + '/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_checkoutPayload)
+    });
+    const _stripeData = await _stripeResp.json();
+
+    if (!_stripeResp.ok || !_stripeData.sessionId) {
+      throw new Error(_stripeData.error || 'Could not create payment session');
+    }
+
+    // Redirect to Stripe Checkout
+    const _stripe = Stripe(STRIPE_PUB_KEY);
+    const { error: stripeError } = await _stripe.redirectToCheckout({ sessionId: _stripeData.sessionId });
+    if (stripeError) {
+      throw new Error(stripeError.message);
+    }
+
   } catch (err) {
     document.getElementById('payment-loading-overlay').style.display = 'none';
-    document.getElementById('pay-now-btn').innerHTML = '💳 Pay Securely — $' + total.toFixed(2);
+    const _payBtn = document.getElementById('pay-now-btn');
+    if (_payBtn) _payBtn.disabled = false;
+    if (_payBtn) _payBtn.innerHTML = '💳 Pay Securely — 
+
+// ── ORDER CONFIRM MODAL (no-backend fallback) ─────────────────
+function showOrderConfirmModal(name, phone, total, type) {
+  // Build a readable item list
+  const itemLines = cart.map(i => (i.emoji||'🍕') + ' ' + i.name + (i.qty>1?' ×'+i.qty:'') + ' — $' + (i.price*i.qty).toFixed(2)).join('<br>');
+  const typeLabel = type === 'delivery' ? '🚗 Delivery' : '🏃 Pickup';
+  const addrLine  = type === 'delivery' && deliveryAddress.street
+    ? '<div style="font-size:12px;color:var(--muted2);margin-top:4px;">📍 ' + deliveryAddress.street + ', ' + deliveryAddress.city + '</div>' : '';
+
+  const html = `
+  <div style="text-align:center;margin:10px 0">
+    <div onclick="showOrderTracker()" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:30px;font-weight:700;font-size:15px;cursor:pointer;letter-spacing:0.5px;box-shadow:0 4px 15px rgba(37,99,235,0.4)">📍 Track My Order</div>
+  </div>
+  <div id="ocm-overlay" onclick="closeOrderConfirmModal()" style="position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:800;backdrop-filter:blur(6px);"></div>
+  <div id="ocm-modal" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100vw-24px));background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:24px;z-index:801;padding:28px 24px;max-height:90vh;overflow-y:auto;">
+    <div style="text-align:center;margin-bottom:20px;">
+      <div style="font-size:56px;margin-bottom:10px;">🍕</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:3px;color:#22c55e;">ORDER READY!</div>
+      <div style="font-size:14px;color:var(--muted2);margin-top:6px;line-height:1.6;">Your order is ready to go.<br>Call us to confirm and pay over the phone.</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:14px;padding:16px 18px;margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--muted2);text-transform:uppercase;margin-bottom:10px;">Order Summary</div>
+      <div style="font-size:13px;color:#fff;line-height:1.9;">${itemLines}</div>
+      <div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:12px;padding-top:10px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:var(--muted2);">TOTAL (incl. HST)</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--gold);">$${total.toFixed(2)}</span>
+      </div>
+    </div>
+    <div style="background:rgba(232,32,26,0.08);border:1px solid rgba(232,32,26,0.2);border-radius:14px;padding:14px 16px;margin-bottom:16px;text-align:center;">
+      <div style="font-size:12px;color:var(--muted2);margin-bottom:8px;">${typeLabel} · For: <strong style="color:#fff;">${name}</strong>${addrLine}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:#fff;">Call to confirm:</div>
+      <a href="tel:9058760222" style="display:block;font-family:'Bebas Neue',sans-serif;font-size:38px;letter-spacing:3px;color:var(--red);text-decoration:none;margin-top:4px;">905-876-0222</a>
+      <div style="font-size:12px;color:var(--muted2);margin-top:6px;">We'll take payment over the phone</div>
+    </div>
+    <button onclick="closeOrderConfirmModal()" style="width:100%;padding:14px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:14px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;letter-spacing:1.5px;cursor:pointer;">← Edit Order</button>
+  </div>`;
+
+  const div = document.createElement('div');
+  div.id = 'order-confirm-modal-wrap';
+  div.innerHTML = html;
+  document.body.appendChild(div);
+  document.body.style.overflow = 'hidden';
+}
+function closeOrderConfirmModal() {
+  const el = document.getElementById('order-confirm-modal-wrap');
+  if (el) el.remove();
+  document.body.style.overflow = '';
+  cart = [];
+  updateCartBadge();
+  renderCart();
+  showPage('home');
+}
+
+// Legacy stub — kept so old references don't crash
+// ── SCHEDULE MODE ─────────────────────
+var scheduleMode = 'asap';
+var scheduledFor = null;
+
+function setScheduleMode(mode) {
+  scheduleMode = mode;
+  var asapBtn = document.getElementById('sched-asap');
+  var laterBtn = document.getElementById('sched-later');
+  var timeRow = document.getElementById('sched-time-row');
+  if (!asapBtn || !laterBtn) return;
+  if (mode === 'asap') {
+    asapBtn.style.background='#f97316';asapBtn.style.borderColor='#f97316';asapBtn.style.color='#fff';
+    laterBtn.style.background='transparent';laterBtn.style.borderColor='#334155';laterBtn.style.color='#94a3b8';
+    if(timeRow)timeRow.style.display='none';
+    scheduledFor=null;
+  } else {
+    laterBtn.style.background='#1e40af';laterBtn.style.borderColor='#3b82f6';laterBtn.style.color='#fff';
+    asapBtn.style.background='transparent';asapBtn.style.borderColor='#334155';asapBtn.style.color='#94a3b8';
+    if(timeRow)timeRow.style.display='block';
+    var minDt=new Date(Date.now()+30*60000);
+    var minStr=minDt.toISOString().slice(0,16);
+    var dtInput=document.getElementById('sched-datetime');
+    if(dtInput){dtInput.min=minStr;if(!dtInput.value)dtInput.value=minStr;scheduledFor=dtInput.value;}
+  }
+}
+
+function validateScheduleTime() {
+  var dtInput=document.getElementById('sched-datetime');
+  var errEl=document.getElementById('sched-time-err');
+  if(!dtInput)return true;
+  var val=dtInput.value;
+  if(!val)return true;
+  var chosen=new Date(val).getTime();
+  var minTime=Date.now()+30*60000;
+  if(chosen<minTime){if(errEl)errEl.style.display='block';scheduledFor=null;return false;}
+  if(errEl)errEl.style.display='none';
+  scheduledFor=val;
+  return true;
+}
+
+function placeOrder() { initiatePayment(); }
+
+function changeQty(id, delta) {
+  const item = cart.find(i => i.id === id);
+  if (!item) return;
+  item.qty += delta;
+  if (item.qty <= 0) cart.splice(cart.indexOf(item), 1);
+  updateCartBadge();
+  renderCart();
+}
+function removeItem(id) {
+  const idx = cart.findIndex(i => i.id === id);
+  if (idx > -1) cart.splice(idx, 1);
+  updateCartBadge();
+  renderCart();
+}
+
+// ══════════════════════════════════
+// BUILDER
+// ══════════════════════════════════
+const builder = {
+  size: 'Large', sizePrice: 11.99,
+  crust: 'Regular',
+  sauce: 'Classic Tomato', sauceColor: '#cc3300',
+  cheese: 'Mozzarella', cheeseExtra: 0,
+  toppings: [], notes: ''
+};
+// Sauce SVG gradient stop colours
+const sauceColors = {
+  'Classic Tomato': ['#e03500','#bb1c00','#881200'],
+  'BBQ Sauce':      ['#7a3800','#4a2000','#2a0e00'],
+  'Ranch':          ['#f0ead8','#d8d0b0','#beb490'],
+  'Garlic Cream':   ['#ede4b0','#d4cc88','#b8b060'],
+  'Ginger-Garlic':  ['#d85800','#a83600','#7a2000'],
+};
+// SVG topping positions — (cx,cy) within 220×220 viewBox, radius ~80px from centre 110,110
+// Arranged in 3 rings: inner(r≈28), mid(r≈52), outer(r≈74)
+const toppingPositions = [
+  // inner ring (5 spots)
+  [110,82],[138,100],[128,132],[92,132],[82,100],
+  // mid ring (7 spots)
+  [110,56],[148,72],[162,110],[148,148],[110,164],[72,148],[58,110],[72,72],
+  // outer ring (fill in)
+  [126,68],[154,88],[154,132],[126,152],[94,152],[66,132],[66,88],[94,68],
+];
+// ══════════════════════════════════════════════════════════
+// SVG TOPPING ILLUSTRATION SYSTEM
+// Each topping returns an SVG <g> element drawn at (cx, cy)
+// with size ~r (radius hint, typically 10-14)
+// ══════════════════════════════════════════════════════════
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// Master topping draw function — returns a <g> element
+function drawTopping(name, cx, cy, r, animDelay) {
+  const gWrap = svgEl('g', {transform: `translate(${cx},${cy})`}); const g = svgEl('g', {class:'top-anim'});
+  g.style.animationDelay = animDelay + 's';
+
+  const n = name.replace(/[🌙🌶️🔥]/g,'').trim().toLowerCase();
+
+  // ── PEPPERONI / HALAL PEP ──────────────────────────────
+  if (n.includes('pepperoni') || n.includes('halal pep')) {
+    const isHalal = n.includes('halal');
+    // Base circle (meat)
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r, fill: isHalal ? '#D4880A' : '#C0350A'}));
+    // Lighter inner circle
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.72, fill: isHalal ? '#E8A020' : '#D4441A'}));
+    // Fat marbling spots
+    const marbSpots = [[r*0.25,r*0.1],[r*-0.2,r*-0.25],[r*0.1,r*-0.3],[r*-0.3,r*0.2],[r*0.3,r*-0.1]];
+    marbSpots.forEach(([mx,my]) => {
+      g.appendChild(svgEl('ellipse', {cx:mx,cy:my,rx:r*0.12,ry:r*0.09,fill:'rgba(255,210,180,0.45)'}));
+    });
+    // Edge highlight
+    g.appendChild(svgEl('circle', {cx:r*-0.25,cy:r*-0.28,r:r*0.18,fill:'rgba(255,200,160,0.25)'}));
+    // Crisp dark edge
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r,fill:'none',stroke:'rgba(80,10,0,0.4)','stroke-width':r*0.08}));
+  }
+
+  // ── BEEF ──────────────────────────────────────────────
+  else if (n === 'beef') {
+    // Irregular meat chunk
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.72,fill:'#7A2E08'}));
+    g.appendChild(svgEl('ellipse', {cx:r*0.1,cy:r*-0.1,rx:r*0.7,ry:r*0.55,fill:'#9B3E12'}));
+    // Texture lines
+    for (let i=0;i<3;i++) {
+      const ly = (i-1)*r*0.22;
+      g.appendChild(svgEl('line', {x1:-r*0.5,y1:ly,x2:r*0.5,y2:ly,stroke:'rgba(50,10,0,0.3)','stroke-width':r*0.1,'stroke-linecap':'round'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.2,cy:-r*0.25,rx:r*0.3,ry:r*0.22,fill:'rgba(255,180,120,0.2)'}));
+  }
+
+  // ── SAUSAGE / HALAL SAUSAGE ───────────────────────────
+  else if (n.includes('sausage')) {
+    const isHalal = n.includes('halal');
+    const col = isHalal ? '#B87010' : '#B85020';
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.55,fill:col}));
+    g.appendChild(svgEl('ellipse', {cx:r*0.05,cy:r*-0.08,rx:r*0.78,ry:r*0.4,fill: isHalal ? '#D49030' : '#D46030'}));
+    // Grill marks
+    for (let i=-1;i<=1;i++) {
+      g.appendChild(svgEl('line', {x1:i*r*0.3,y1:r*-0.35,x2:i*r*0.3,y2:r*0.35,stroke:'rgba(50,15,0,0.35)','stroke-width':r*0.12,'stroke-linecap':'round'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.25,cy:-r*0.22,rx:r*0.28,ry:r*0.18,fill:'rgba(255,200,150,0.2)'}));
+  }
+
+  // ── BACON ─────────────────────────────────────────────
+  else if (n === 'bacon') {
+    // Wavy strip
+    const path = `M ${-r} ${-r*0.25} C ${-r*0.5} ${-r*0.55} ${r*0.5} ${r*0.15} ${r} ${-r*0.1} L ${r} ${r*0.3} C ${r*0.5} ${r*0.55} ${-r*0.5} ${r*0.02} ${-r} ${r*0.3} Z`;
+    g.appendChild(svgEl('path', {d:path, fill:'#9B2200'}));
+    // Fat stripe
+    const pathFat = `M ${-r} ${r*0.02} C ${-r*0.5} ${-r*0.1} ${r*0.5} ${r*0.35} ${r} ${r*0.1} L ${r} ${r*0.25} C ${r*0.5} ${r*0.48} ${-r*0.5} ${r*0.12} ${-r} ${r*0.22} Z`;
+    g.appendChild(svgEl('path', {d:pathFat, fill:'rgba(255,220,180,0.75)'}));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.3,cy:-r*0.18,rx:r*0.25,ry:r*0.12,fill:'rgba(255,200,180,0.25)'}));
+  }
+
+  // ── CHICKEN / TANDOORI / SHAWARMA ─────────────────────
+  else if (n.includes('chicken') || n.includes('tandoori') || n.includes('shawarma')) {
+    const col = n.includes('tandoori') ? '#D45008' : n.includes('shawarma') ? '#C07020' : '#D4940A';
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.65,fill:col}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:r*-0.08,rx:r*0.72,ry:r*0.48,fill:'rgba(255,220,150,0.35)'}));
+    // Char marks
+    for (let i=0;i<2;i++) {
+      g.appendChild(svgEl('ellipse', {cx:(i-0.5)*r*0.55,cy:r*0.1,rx:r*0.16,ry:r*0.32,fill:'rgba(80,20,0,0.3)',transform:`rotate(${(i-0.5)*20})`}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.22,cy:-r*0.25,rx:r*0.25,ry:r*0.18,fill:'rgba(255,240,200,0.25)'}));
+  }
+
+  // ── HAM ───────────────────────────────────────────────
+  else if (n === 'ham') {
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.65,fill:'#E87080'}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.72,ry:r*0.48,fill:'#F4A0A8'}));
+    // Fat marbling
+    for (let i=0;i<3;i++) {
+      g.appendChild(svgEl('ellipse', {cx:(i-1)*r*0.35,cy:r*0.08,rx:r*0.1,ry:r*0.25,fill:'rgba(255,230,230,0.5)'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.2,cy:-r*0.2,rx:r*0.28,ry:r*0.2,fill:'rgba(255,255,255,0.2)'}));
+  }
+
+  // ── ANCHOVIES ─────────────────────────────────────────
+  else if (n === 'anchovies') {
+    const bodyPath = `M ${-r} 0 C ${-r*0.8} ${-r*0.35} ${r*0.8} ${-r*0.35} ${r} 0 C ${r*0.8} ${r*0.35} ${-r*0.8} ${r*0.35} ${-r} 0 Z`;
+    g.appendChild(svgEl('path', {d:bodyPath, fill:'#5577AA'}));
+    g.appendChild(svgEl('path', {d:bodyPath, fill:'none', stroke:'rgba(180,200,255,0.3)', 'stroke-width':r*0.08}));
+    g.appendChild(svgEl('line', {x1:-r*0.6,y1:0,x2:r*0.6,y2:0,stroke:'rgba(200,220,255,0.4)','stroke-width':r*0.09}));
+    g.appendChild(svgEl('circle', {cx:r*0.7,cy:-r*0.08,r:r*0.11,fill:'#223355'}));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.1,cy:-r*0.2,rx:r*0.3,ry:r*0.12,fill:'rgba(200,220,255,0.2)'}));
+  }
+
+  // ── MUSHROOMS ─────────────────────────────────────────
+  else if (n === 'mushrooms') {
+    // Cap
+    const capPath = `M ${-r} ${r*0.15} Q ${-r} ${-r} 0 ${-r*1.0} Q ${r} ${-r} ${r} ${r*0.15} Z`;
+    g.appendChild(svgEl('path', {d:capPath, fill:'#8B6040'}));
+    // Cap highlight
+    const capHL = `M ${-r*0.6} ${r*0.1} Q ${-r*0.55} ${-r*0.7} 0 ${-r*0.85} Q ${r*0.55} ${-r*0.7} ${r*0.6} ${r*0.1} Z`;
+    g.appendChild(svgEl('path', {d:capHL, fill:'#A8784E'}));
+    // Gills underside
+    g.appendChild(svgEl('rect', {x:-r,y:r*0.12,width:r*2,height:r*0.22,fill:'#C8A880',rx:r*0.05}));
+    // Stem
+    g.appendChild(svgEl('rect', {x:-r*0.22,y:r*0.3,width:r*0.44,height:r*0.5,fill:'#D4B890',rx:r*0.08}));
+    // Spot
+    g.appendChild(svgEl('ellipse', {cx:-r*0.15,cy:-r*0.55,rx:r*0.18,ry:r*0.13,fill:'rgba(255,240,220,0.3)'}));
+  }
+
+  // ── GREEN PEPPER ──────────────────────────────────────
+  else if (n === 'green pepper') {
+    // Ring slice
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.65,fill:'none',stroke:'#2E8B2E','stroke-width':r*0.38}));
+    // Inner lighter
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.65,ry:r*0.3,fill:'none',stroke:'rgba(100,220,100,0.3)','stroke-width':r*0.15}));
+    // Seed dots
+    for (let i=0;i<3;i++) {
+      const ang = (i/3)*Math.PI*2;
+      g.appendChild(svgEl('circle', {cx:Math.cos(ang)*r*0.35,cy:Math.sin(ang)*r*0.22,r:r*0.07,fill:'#F4E04A'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.35,cy:-r*0.25,rx:r*0.2,ry:r*0.12,fill:'rgba(180,255,180,0.25)'}));
+  }
+
+  // ── RED PEPPER ────────────────────────────────────────
+  else if (n === 'red pepper') {
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.65,fill:'none',stroke:'#CC2200','stroke-width':r*0.38}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.65,ry:r*0.3,fill:'none',stroke:'rgba(255,120,80,0.3)','stroke-width':r*0.15}));
+    for (let i=0;i<3;i++) {
+      const ang = (i/3)*Math.PI*2;
+      g.appendChild(svgEl('circle', {cx:Math.cos(ang)*r*0.35,cy:Math.sin(ang)*r*0.22,r:r*0.07,fill:'#F4E04A'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.35,cy:-r*0.25,rx:r*0.2,ry:r*0.12,fill:'rgba(255,180,160,0.25)'}));
+  }
+
+  // ── RED ONION ─────────────────────────────────────────
+  else if (n === 'red onion') {
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.55,fill:'none',stroke:'#8B2075','stroke-width':r*0.32}));
+    // Inner rings
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.6,ry:r*0.32,fill:'none',stroke:'rgba(180,80,160,0.55)','stroke-width':r*0.18}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.25,ry:r*0.13,fill:'none',stroke:'rgba(220,120,200,0.4)','stroke-width':r*0.1}));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.3,cy:-r*0.2,rx:r*0.22,ry:r*0.12,fill:'rgba(255,200,240,0.2)'}));
+  }
+
+  // ── TOMATOES ──────────────────────────────────────────
+  else if (n === 'tomatoes' || n === 'sun-dried tom.') {
+    const isSunDried = n.includes('sun');
+    const baseCol = isSunDried ? '#8B1500' : '#E03010';
+    const hiCol   = isSunDried ? '#BB3010' : '#F06040';
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r,fill:baseCol}));
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.85,fill:hiCol}));
+    // Segments
+    for (let i=0;i<4;i++) {
+      const ang = (i/4)*Math.PI*2 + Math.PI/8;
+      g.appendChild(svgEl('line', {x1:0,y1:0,x2:Math.cos(ang)*r*0.8,y2:Math.sin(ang)*r*0.8,stroke:'rgba(80,0,0,0.3)','stroke-width':r*0.1}));
+    }
+    // Centre
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.15,fill:'rgba(255,200,100,0.7)'}));
+    // Seeds
+    for (let i=0;i<4;i++) {
+      const ang = (i/4)*Math.PI*2;
+      g.appendChild(svgEl('ellipse', {cx:Math.cos(ang)*r*0.45,cy:Math.sin(ang)*r*0.45,rx:r*0.1,ry:r*0.14,fill:'rgba(255,220,100,0.5)'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.28,cy:-r*0.3,rx:r*0.25,ry:r*0.18,fill:'rgba(255,180,160,0.25)'}));
+  }
+
+  // ── SPINACH ───────────────────────────────────────────
+  else if (n === 'spinach') {
+    // Leaf shape
+    const leafPath = `M 0 ${-r} C ${r*0.8} ${-r*0.5} ${r*0.8} ${r*0.5} 0 ${r} C ${-r*0.8} ${r*0.5} ${-r*0.8} ${-r*0.5} 0 ${-r} Z`;
+    g.appendChild(svgEl('path', {d:leafPath, fill:'#1A6B30'}));
+    g.appendChild(svgEl('path', {d:leafPath, fill:'none', stroke:'#2E9B48','stroke-width':r*0.08}));
+    // Veins
+    g.appendChild(svgEl('line', {x1:0,y1:-r*0.85,x2:0,y2:r*0.85,stroke:'rgba(100,220,120,0.5)','stroke-width':r*0.09}));
+    for (let i=-2;i<=2;i++) {
+      const y = i*r*0.35;
+      const x = Math.sqrt(Math.max(0,r*r - y*y))*0.72;
+      if (x>0) g.appendChild(svgEl('line', {x1:0,y1:y,x2:x*0.7,y2:y+r*0.15,stroke:'rgba(100,220,120,0.35)','stroke-width':r*0.07}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.15,cy:-r*0.38,rx:r*0.22,ry:r*0.14,fill:'rgba(180,255,180,0.2)'}));
+  }
+
+  // ── BLACK OLIVES ──────────────────────────────────────
+  else if (n === 'black olives') {
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.65,fill:'#1C1C1C'}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.65,ry:r*0.38,fill:'rgba(255,255,255,0.08)'}));
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.3,fill:'#4A4A4A'}));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.22,cy:-r*0.25,rx:r*0.28,ry:r*0.15,fill:'rgba(255,255,255,0.15)'}));
+  }
+
+  // ── GREEN OLIVES ──────────────────────────────────────
+  else if (n === 'green olives') {
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.65,fill:'#4A7A20'}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r*0.65,ry:r*0.38,fill:'rgba(180,255,120,0.15)'}));
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.28,fill:'#D4400A'}));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.22,cy:-r*0.22,rx:r*0.25,ry:r*0.14,fill:'rgba(200,255,180,0.25)'}));
+  }
+
+  // ── PINEAPPLE ─────────────────────────────────────────
+  else if (n === 'pineapple') {
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.52,fill:'#E8B820'}));
+    g.appendChild(svgEl('ellipse', {cx:0,cy:r*-0.1,rx:r*0.78,ry:r*0.38,fill:'#F4D040'}));
+    // Diamond texture
+    const diam = [[0,-r*0.28],[r*0.35,0],[0,r*0.28],[-r*0.35,0]];
+    diam.forEach(([dx,dy]) => g.appendChild(svgEl('ellipse', {cx:dx,cy:dy,rx:r*0.18,ry:r*0.12,fill:'rgba(200,120,0,0.35)'})));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.28,cy:-r*0.25,rx:r*0.28,ry:r*0.15,fill:'rgba(255,240,180,0.3)'}));
+  }
+
+  // ── JALAPEÑOS / GREEN CHILLIES / HOT PEPPERS ──────────
+  else if (n.includes('jalap') || n.includes('chilli') || n.includes('hot pepper') || n.includes('banana pepper')) {
+    const col = n.includes('banana') ? '#D4C020' : '#2A8B20';
+    const hi  = n.includes('banana') ? '#E8DA50' : '#50BB40';
+    // Pepper slice (elongated oval)
+    g.appendChild(svgEl('ellipse', {cx:0,cy:0,rx:r,ry:r*0.38,fill:col}));
+    g.appendChild(svgEl('ellipse', {cx:r*0.05,cy:-r*0.05,rx:r*0.72,ry:r*0.22,fill:hi}));
+    // Seeds
+    for (let i=-1;i<=1;i++) {
+      g.appendChild(svgEl('ellipse', {cx:i*r*0.38,cy:r*0.05,rx:r*0.08,ry:r*0.13,fill:'rgba(255,240,100,0.7)'}));
+    }
+    g.appendChild(svgEl('ellipse', {cx:-r*0.3,cy:-r*0.18,rx:r*0.22,ry:r*0.1,fill:'rgba(200,255,150,0.2)'}));
+  }
+
+  // ── CORIANDER ─────────────────────────────────────────
+  else if (n === 'coriander') {
+    // Small herb leaves cluster
+    for (let i=0;i<5;i++) {
+      const ang = (i/5)*Math.PI*2 - Math.PI/2;
+      const lx = Math.cos(ang)*r*0.5;
+      const ly = Math.sin(ang)*r*0.5;
+      const leafP = `M ${lx} ${ly} C ${lx+Math.cos(ang+1)*r*0.45} ${ly+Math.sin(ang+1)*r*0.45} ${lx+Math.cos(ang-1)*r*0.45} ${ly+Math.sin(ang-1)*r*0.45} ${lx} ${ly}`;
+      g.appendChild(svgEl('path', {d:leafP, fill:'#2A8B20', stroke:'#4ABB40','stroke-width':r*0.05}));
+    }
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.18,fill:'#3AAA30'}));
+  }
+
+  // ── FALLBACK (unknown topping — red dot with name initial) ──
+  else {
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r,fill:'#CC3300'}));
+    g.appendChild(svgEl('circle', {cx:0,cy:0,r:r*0.72,fill:'#DD4411'}));
+    g.appendChild(svgEl('ellipse', {cx:-r*0.2,cy:-r*0.28,rx:r*0.32,ry:r*0.2,fill:'rgba(255,200,180,0.25)'}));
+  }
+
+  // Universal drop-shadow (added last, under animation)
+  const shadow = svgEl('ellipse', {cx:r*0.15,cy:r*0.9,rx:r*0.75,ry:r*0.22,fill:'rgba(0,0,0,0.28)'});
+  g.insertBefore(shadow, g.firstChild);
+
+  gWrap.appendChild(g); return gWrap;
+}
+
+// ── HALF & HALF STATE ──
+let halfHalfOn = false;
+let hhRightToppings = [];
+
+function toggleHalfHalf() {
+  halfHalfOn = !halfHalfOn;
+  const btn   = document.getElementById('hh-toggle-btn');
+  const knob  = document.getElementById('hh-toggle-knob');
+  const panel = document.getElementById('hh-panel');
+  const label = document.getElementById('b-halfhalf-label');
+  if (halfHalfOn) {
+    btn.style.background   = 'var(--gold)';
+    btn.style.borderColor  = 'var(--gold)';
+    knob.style.left        = '25px';
+    knob.style.background  = '#000';
+    panel.style.display    = 'block';
+    label.textContent      = 'On';
+    // Show SVG divider + labels
+    const hd = document.getElementById('half-divider');
+    const hl = document.getElementById('hh-left-label');
+    const hr = document.getElementById('hh-right-label');
+    if (hd) hd.setAttribute('opacity','1');
+    if (hl) hl.setAttribute('opacity','1');
+    if (hr) hr.setAttribute('opacity','1');
+  } else {
+    btn.style.background   = 'var(--card3)';
+    btn.style.borderColor  = 'var(--border2)';
+    knob.style.left        = '3px';
+    knob.style.background  = 'var(--muted2)';
+    panel.style.display    = 'none';
+    label.textContent      = 'Off';
+    hhRightToppings = [];
+    // Hide SVG divider + labels
+    const hd2 = document.getElementById('half-divider');
+    const hl2 = document.getElementById('hh-left-label');
+    const hr2 = document.getElementById('hh-right-label');
+    if (hd2) hd2.setAttribute('opacity','0');
+    if (hl2) hl2.setAttribute('opacity','0');
+    if (hr2) hr2.setAttribute('opacity','0');
+    // Clear right toppings from SVG
+    const rg = document.getElementById('svg-toppings-right');
+    if (rg) rg.innerHTML = '';
+  }
+  updateBuilderProgress();
+  updateBuilderPrice();
+  renderHalfHalfPanel();
+}
+
+function bToggleHHRight(name) {
+  const idx = hhRightToppings.indexOf(name);
+  if (idx > -1) hhRightToppings.splice(idx,1);
+  else hhRightToppings.push(name);
+  _renderToppingsIntoGroup('svg-toppings-right', hhRightToppings, true);
+  renderHalfHalfPanel();
+  updateBuilderPrice();
+}
+
+function renderHalfHalfPanel() {
+  if (!halfHalfOn) return;
+  const leftEl = document.getElementById('hh-left-list');
+  if (leftEl) leftEl.textContent = builder.toppings.length ? builder.toppings.join(', ') : 'None yet';
+  const grid = document.getElementById('hh-right-grid');
+  if (!grid) return;
+  const allTops = [...ALL_TOPPINGS_MEATS.map(t=>t.name), ...ALL_TOPPINGS_VEG.map(t=>t.name), ...ALL_TOPPINGS_CHEESE.map(t=>t.name)];
+  grid.innerHTML = allTops.map(name => {
+    const sel = hhRightToppings.includes(name);
+    const safeName = name.replace(/[^\w\s]/g,'').trim();
+    return `<div onclick="bToggleHHRight('${safeName}')" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:8px;cursor:pointer;border:1.5px solid ${sel?'var(--red)':'var(--border)'};background:${sel?'rgba(232,32,26,0.12)':'rgba(255,255,255,0.04)'};color:${sel?'#fff':'var(--muted2)'};transition:all .15s;white-space:nowrap;">${name}</div>`;
+  }).join('');
+}
+
+function bPick(field, el, val, extra, sauceColor) {
+  const group = el.parentElement;
+  group.querySelectorAll('.opt-chip').forEach(c => c.classList.remove('sel'));
+  el.classList.add('sel');
+  builder[field] = val;
+  if (field === 'size')   { builder.sizePrice  = extra; document.getElementById('b-size-selected').textContent  = val; }
+  if (field === 'crust')  { document.getElementById('b-crust-selected').textContent  = val; }
+  if (field === 'sauce')  {
+    builder.sauceColor = sauceColor;
+    document.getElementById('b-sauce-selected').textContent = val;
+    // Update SVG sauce gradient stops
+    const stops = sauceColors[val] || sauceColors['Classic Tomato'];
+    const s1 = document.getElementById('sg1');
+    const s2 = document.getElementById('sg2');
+    const s3 = document.getElementById('sg3');
+    if (s1) { s1.setAttribute('stop-color', stops[0]); s2.setAttribute('stop-color', stops[1]); s3.setAttribute('stop-color', stops[2]); }
+    // Cheese tint for non-tomato sauces
+    const cheeseEl = document.getElementById('svg-cheese');
+    if (cheeseEl) {
+      if (val === 'BBQ Sauce') cheeseEl.setAttribute('opacity','0.85');
+      else if (val === 'Ranch' || val === 'Garlic Cream') cheeseEl.setAttribute('opacity','0.95');
+      else cheeseEl.setAttribute('opacity','1');
+    }
+  }
+  if (field === 'cheese') { builder.cheeseExtra = extra||0; document.getElementById('b-cheese-selected').textContent = val; }
+  updateBuilderProgress();
+  updateBuilderPrice();
+  // Update cheese label price when size changes
+  if (field === 'size') {
+    const toppingPrice = TOPPING_PRICES[val];
+    const cheeseLabel = document.querySelector('.top-cat-label:has(+ .top-grid)');
+    if (cheeseLabel) {
+      cheeseLabel.innerHTML = `🧀 EXTRA CHEESES <span style="font-size:10px;color:var(--muted2);font-family:'Barlow',sans-serif;font-weight:500;text-transform:none;letter-spacing:0;">$${toppingPrice.toFixed(2)} each</span>`;
+      document.querySelectorAll('.top-chip-extra').forEach(el => {
+        el.textContent = `+$${toppingPrice.toFixed(2)}`;
+      });
+    }
+  }
+}
+
+function bToggleTop(el, val, emoji, color) {
+  const idx = builder.toppings.indexOf(val);
+  const doubleIdx = builder.toppings.indexOf('2x ' + val);
+
+  if (doubleIdx > -1) {
+    // Third click: remove double, remove single
+    builder.toppings.splice(doubleIdx, 1);
+    el.classList.remove('sel');
+    el.setAttribute('data-double', '');
+  } else if (idx > -1) {
+    // Second click: convert to double
+    builder.toppings.splice(idx, 1, '2x ' + val);
+    el.setAttribute('data-double', 'true');
+  } else {
+    // First click: add single
+    builder.toppings.push(val);
+    el.classList.add('sel');
+  }
+
+  renderToppingVisual();
+  if (halfHalfOn) _renderToppingsIntoGroup('svg-toppings-right', hhRightToppings, true);
+  renderHalfHalfPanel();
+  updateBuilderProgress();
+  updateBuilderPrice();
+}
+
+function renderToppingVisual() {
+  _renderToppingsIntoGroup('svg-toppings', builder.toppings, false);
+}
+
+function _renderToppingsIntoGroup(groupId, toppings, isRight) {
+  const g = document.getElementById(groupId);
+  if (!g) return;
+  g.innerHTML = '';
+  const clipAttr = isRight ? 'url(#right-half-clip)' : (halfHalfOn ? 'url(#left-half-clip)' : 'url(#pizza-clip)');
+  g.setAttribute('clip-path', clipAttr);
+
+  toppings.slice(0,16).forEach((t, i) => {
+    const pos = toppingPositions[i % toppingPositions.length];
+    let [cx, cy] = pos;
+
+    // Per-topping deterministic jitter for natural scatter
+    cx += ((t.charCodeAt(0) * 7  + i * 19) % 13) - 6;
+    cy += ((t.charCodeAt(0) * 11 + i * 23) % 11) - 5;
+
+    // Keep inside cheese area (radius ~78 from centre 110,110)
+    const dx = cx - 110, dy = cy - 110;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > 76) { cx = 110 + dx/dist*74; cy = 110 + dy/dist*74; }
+
+    // Mirror x for right half
+    if (isRight) cx = 220 - cx;
+
+    // Topping radius — slightly vary per item for organic look
+    const r = 14 + ((t.charCodeAt(0) + i * 3) % 6);
+    const delay = i * 0.055;
+
+    const toppingGroup = drawTopping(t, cx, cy, r, delay);
+    g.appendChild(toppingGroup);
+  });
+}
+
+function updateBuilderProgress() {
+  const steps = ['bp1','bp2','bp3','bp4','bp5','bp6'];
+  const done  = [true, builder.crust!=='', builder.sauce!=='', builder.cheese!=='', builder.toppings.length>0, halfHalfOn];
+  steps.forEach((id,i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('done','current');
+    if (done[i]) el.classList.add('done');
+  });
+}
+
+function updateBuilderPrice() {
+  // No free toppings — every topping is size-based price
+  const toppingPrice = TOPPING_PRICES[builder.size];
+
+  // Calculate cost with double topping support (doubles cost 2x)
+  let leftCost = 0;
+  builder.toppings.forEach(t => {
+    leftCost += t.startsWith('2x ') ? toppingPrice * 2 : toppingPrice;
+  });
+
+  let rightCost = 0;
+  if (halfHalfOn) {
+    hhRightToppings.forEach(t => {
+      rightCost += t.startsWith('2x ') ? toppingPrice * 2 : toppingPrice;
+    });
+  }
+
+  const total = builder.sizePrice + builder.cheeseExtra + leftCost + rightCost;
+  document.getElementById('bf-price').textContent = '$' + total.toFixed(2);
+  const modeLabel = halfHalfOn ? ' · ½&½' : '';
+  document.getElementById('bf-items-label').textContent = `${builder.size} · ${builder.crust} · ${builder.sauce}${modeLabel}`;
+  document.getElementById('b-pizza-label').textContent   = `${builder.size} · ${builder.crust} · ${builder.sauce}${modeLabel}`;
+  const countEl = document.getElementById('b-topping-count');
+  if (countEl) {
+    let toppingCount = 0;
+    let cost = 0;
+    builder.toppings.forEach(t => {
+      if (t.startsWith('2x ')) {
+        toppingCount += 2;
+        cost += toppingPrice * 2;
+      } else {
+        toppingCount += 1;
+        cost += toppingPrice;
+      }
+    });
+    countEl.textContent = `$${toppingPrice.toFixed(2)} each · ${toppingCount} selected${toppingCount>0 ? ' ($'+cost.toFixed(2)+')' : ''}`;
+  }
+}
+
+function switchBuilderMode(mode) {
+  const pizzaMode = document.getElementById('builder-pizza-mode');
+  const cateringMode = document.getElementById('builder-catering-mode');
+  const pizzaBtn = document.getElementById('builder-mode-pizza');
+  const cateringBtn = document.getElementById('builder-mode-catering');
+
+  if (mode === 'pizza') {
+    if (pizzaMode) pizzaMode.style.display = 'block';
+    if (cateringMode) cateringMode.style.display = 'none';
+    if (pizzaBtn) {
+      pizzaBtn.style.background = 'rgba(245,166,35,0.15)';
+      pizzaBtn.style.color = 'var(--gold)';
+    }
+    if (cateringBtn) {
+      cateringBtn.style.background = 'transparent';
+      cateringBtn.style.color = 'var(--muted2)';
+    }
+  } else if (mode === 'catering') {
+    if (pizzaMode) pizzaMode.style.display = 'none';
+    if (cateringMode) cateringMode.style.display = 'block';
+    if (pizzaBtn) {
+      pizzaBtn.style.background = 'transparent';
+      pizzaBtn.style.color = 'var(--muted2)';
+    }
+    if (cateringBtn) {
+      cateringBtn.style.background = 'rgba(245,166,35,0.15)';
+      cateringBtn.style.color = 'var(--gold)';
+    }
+  }
+}
+
+function addBuilderToCart() {
+  // Validate required choices: size, crust, sauce are required
+  if (!builder.size || !builder.crust || !builder.sauce) {
+    let missing = [];
+    if (!builder.size) missing.push('Size');
+    if (!builder.crust) missing.push('Crust');
+    if (!builder.sauce) missing.push('Sauce');
+    showToast('⚠️ Please select: ' + missing.join(', '), 'warning');
+    return;
+  }
+  // Toppings are optional - customers can choose 0, 1, 2, or 3 toppings
+  const toppingPrice = TOPPING_PRICES[builder.size];
+  let leftCost = 0;
+  builder.toppings.forEach(t => {
+    leftCost += t.startsWith('2x ') ? toppingPrice * 2 : toppingPrice;
+  });
+  let rightCost = 0;
+  if (halfHalfOn) {
+    hhRightToppings.forEach(t => {
+      rightCost += t.startsWith('2x ') ? toppingPrice * 2 : toppingPrice;
+    });
+  }
+  const total = builder.sizePrice + builder.cheeseExtra + leftCost + rightCost;
+  const notes = document.getElementById('b-notes') ? document.getElementById('b-notes').value : '';
+  const cheeseLabel = builder.cheese === '🧀🧀 Double (+$1.50)' ? 'Double Cheese' : builder.cheese;
+  let detail;
+  if (halfHalfOn) {
+    const L = builder.toppings.length  ? builder.toppings.join(', ')  : 'Plain';
+    const R = hhRightToppings.length   ? hhRightToppings.join(', ')   : 'Plain';
+    detail = `${builder.size} | ${builder.crust} Crust | ${builder.sauce} | ${cheeseLabel} | HALF & HALF\nLeft Half: ${L}\nRight Half: ${R}`;
+  } else {
+    const tops = builder.toppings.length ? `\nToppings: ${builder.toppings.join(', ')}` : '\nNo extra toppings';
+    detail = `${builder.size} | ${builder.crust} Crust | ${builder.sauce} | ${cheeseLabel}${tops}`;
+  }
+  if (notes) detail += `\nNote: ${notes}`;
+  cart.push({id:Date.now(), name: halfHalfOn ? 'Custom Pizza (½&½)' : 'Custom Pizza', detail, price:total, emoji:'🍕', qty:1});
+  updateCartBadge();
+  showToast('🍕 Custom pizza added to cart!');
+  showPage('cart');
+}
+
+// ══════════════════════════════════
+// GARLIC BREAD SHEET
+// ══════════════════════════════════
+let gbCheese = false;
+function openGarlicSheet() {
+  gbCheese = false;
+  const el1 = document.getElementById('gb-no-cheese');
+  const el2 = document.getElementById('gb-with-cheese');
+  if (el1) el1.classList.add('sel');
+  if (el2) el2.classList.remove('sel');
+  updateGarlicFooter();
+  document.getElementById('garlicOverlay').classList.add('open');
+  document.getElementById('garlicSheet').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeGarlicSheet() {
+  document.getElementById('garlicOverlay').classList.remove('open');
+  document.getElementById('garlicSheet').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function gbToggleCheese(withCheese) {
+  gbCheese = withCheese;
+  document.getElementById('gb-no-cheese').classList.toggle('sel', !withCheese);
+  document.getElementById('gb-with-cheese').classList.toggle('sel', withCheese);
+  updateGarlicFooter();
+}
+function updateGarlicFooter() {
+  const price = gbCheese ? 6.29 : 4.99;
+  const label = gbCheese ? 'Garlic bread with cheese' : 'Plain garlic bread';
+  document.getElementById('gb-footer-label').textContent = label;
+  document.getElementById('gb-footer-price').textContent = '$' + price.toFixed(2);
+}
+function confirmGarlicSheet() {
+  const price = gbCheese ? 6.29 : 4.99;
+  const notes = document.getElementById('gb-notes') ? document.getElementById('gb-notes').value : '';
+  const detail = (gbCheese ? 'With cheese (+$1.30)' : 'Plain') + (notes ? ' · ' + notes : '');
+  cart.push({id:Date.now(), name:'Garlic Bread', detail, price, emoji:'🥖', qty:1});
+  updateCartBadge();
+  closeGarlicSheet();
+  showToast('🥖 Garlic bread added!');
+}
+
+// ══════════════════════════════════
+// GOURMET PIZZA SHEET (home page items)
+// ══════════════════════════════════
+let gsState = {
+  name:'', emoji:'🍕', desc:'', prices:{}, halal:false, veg:false,
+  size:'Large', sizePrice:16.99,
+  crust:'Regular',
+  extraToppings:[],   // first half (or whole pizza)
+  halfHalf:false,
+  halfToppings:[],    // second half toppings
+};
+const GS_CRUSTS = ['Regular','Thin & Crispy','Thick & Fluffy'];
+
+function openGourmetSheet(name, emoji, desc, prices, halal, veg) {
+  const sizeKeys = Object.keys(prices);
+  // Default to Large or first available
+  const defaultSize = sizeKeys.includes('Lg') ? 'Lg' : sizeKeys[0];
+  gsState = {name, emoji, desc, prices, halal, veg,
+    size: defaultSize, sizePrice: prices[defaultSize],
+    crust:'Regular', extraToppings:[], halfHalf:false, halfToppings:[]};
+  document.getElementById('gs-title').textContent = emoji + ' ' + name;
+  document.getElementById('gs-desc').textContent = desc;
+  renderGourmetSheet();
+  document.getElementById('gourmetOverlay').classList.add('open');
+  document.getElementById('gourmetSheet').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeGourmetSheet() {
+  document.getElementById('gourmetOverlay').classList.remove('open');
+  document.getElementById('gourmetSheet').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function gsPickSize(el, sizeKey, price) {
+  gsState.size = sizeKey;
+  gsState.sizePrice = price;
+  el.parentElement.querySelectorAll('.slot-chip').forEach(c => c.classList.remove('sel'));
+  el.classList.add('sel');
+  // Re-render to update topping price labels for selected size
+  renderGourmetSheet();
+}
+function gsPickCrust(el, crust) {
+  gsState.crust = crust;
+  el.parentElement.querySelectorAll('.slot-chip').forEach(c => c.classList.remove('sel'));
+  el.classList.add('sel');
+  updateGourmetFooter();
+}
+function gsToggleTop(name) {
+  const idx = gsState.extraToppings.indexOf(name);
+  if (idx > -1) gsState.extraToppings.splice(idx, 1);
+  else gsState.extraToppings.push(name);
+  document.querySelectorAll('[data-gs-top]').forEach(el => {
+    el.classList.toggle('sel', gsState.extraToppings.includes(el.getAttribute('data-gs-top')));
+  });
+  updateGourmetFooter();
+}
+function updateGourmetFooter() {
+  const s = gsState;
+  const sizeNameMap = {Sm:'Small', Md:'Medium', Lg:'Large', XL:'X-Large', Party:'Party'};
+  const toppingPrice = TOPPING_PRICES[sizeNameMap[s.size]];
+  const topCost = (s.extraToppings.length + (s.halfHalf ? s.halfToppings.length : 0)) * toppingPrice;
+  const total = s.sizePrice + topCost;
+  document.getElementById('gs-footer-price').textContent = '$' + total.toFixed(2);
+  const sizeLabels = {Sm:'Small 10"',Md:'Medium 12"',Lg:'Large 14"',XL:'X-Large 16"',Party:'Party 24"'};
+  const sizeLabel = sizeLabels[s.size] || s.size;
+  const hhLabel = s.halfHalf ? ' · ½&½' : '';
+  const topLabel = s.extraToppings.length || (s.halfHalf && s.halfToppings.length)
+    ? ' · ' + (s.extraToppings.length + (s.halfHalf ? s.halfToppings.length : 0)) + ' toppings'
+    : '';
+  document.getElementById('gs-footer-label').textContent = sizeLabel + ' · ' + s.crust + hhLabel + topLabel;
+}
+function renderGourmetSheet() {
+  const s = gsState;
+  const sizeLabels = {Sm:'Small 10"',Md:'Medium 12"',Lg:'Large 14"',XL:'X-Large 16"',Party:'Party 24"'};
+
+  // Size chips
+  let sizeRow = '<div class="slot-opt-row">';
+  Object.entries(s.prices).forEach(([key, price]) => {
+    const sel = s.size === key ? ' sel' : '';
+    sizeRow += `<div class="slot-chip${sel}" onclick="gsPickSize(this,'${key}',${price})">${sizeLabels[key]||key}<br><span style="color:var(--red);font-size:14px;">$${price}</span></div>`;
+  });
+  sizeRow += '</div>';
+
+  // Crust chips
+  let crustRow = '<div class="slot-opt-row">';
+  GS_CRUSTS.forEach(crust => {
+    const sel = s.crust === crust ? ' sel' : '';
+    crustRow += `<div class="slot-chip${sel}" onclick="gsPickCrust(this,'${crust}')">${crust}</div>`;
+  });
+  crustRow += '</div>';
+
+  // Topping grid builder
+  function buildTopGrid(topsArray, dataAttr, clickFn) {
+    const allTops = [...ALL_TOPPINGS_MEATS, ...ALL_TOPPINGS_VEG, ...ALL_TOPPINGS_CHEESE];
+    let g = '<div class="slot-top-grid">';
+    allTops.forEach(t => {
+      const sel = topsArray.includes(t.name) ? ' sel' : '';
+      g += `<div class="slot-top-chip${sel}" ${dataAttr}="${t.name}" onclick="${clickFn}('${t.name.replace(/['"]/g,'')}')">
+        <div class="slot-top-dot" style="background:${t.color};"></div>
+        <div class="slot-top-name">${t.name}</div>
+        <div class="slot-top-check">\u2713</div>
+      </div>`;
+    });
+    g += '</div>';
+    return g;
+  }
+
+  // Half & Half toggle widget
+  const hhBg  = s.halfHalf ? 'var(--gold)' : 'var(--card3)';
+  const hhBrd = s.halfHalf ? 'var(--gold)' : 'var(--border2)';
+  const hhKL  = s.halfHalf ? '25px' : '3px';
+  const hhKBg = s.halfHalf ? '#000' : 'var(--muted2)';
+  const hhToggle = `<div style="margin:0 18px 6px;background:rgba(245,166,35,0.06);border:1px solid rgba(245,166,35,0.2);border-radius:14px;padding:14px 16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:#fff;">&#x25D1; Half &amp; Half</div>
+        <div style="font-size:12px;color:var(--muted2);margin-top:2px;">Different toppings on each half &mdash; same crust &amp; sauce</div>
+      </div>
+      <div onclick="gsToggleHH()" style="width:48px;height:26px;border-radius:13px;background:${hhBg};border:1.5px solid ${hhBrd};cursor:pointer;position:relative;transition:all .25s;flex-shrink:0;">
+        <div style="width:18px;height:18px;border-radius:50%;background:${hhKBg};position:absolute;top:3px;left:${hhKL};transition:all .25s;"></div>
+      </div>
+    </div>
+  </div>`;
+
+  // Label for first half (or whole pizza)
+  const sizeNameMap = {Sm:'Small', Md:'Medium', Lg:'Large', XL:'X-Large', Party:'Party'};
+  const toppingPrice = TOPPING_PRICES[sizeNameMap[s.size]];
+  const firstLabel = s.halfHalf
+    ? `<div class="slot-section-label" style="border-left:3px solid var(--gold);background:rgba(245,166,35,0.06);">&#x25D0; FIRST HALF &nbsp;<span style="font-size:10px;color:var(--muted2);font-family:'Barlow',sans-serif;font-weight:600;text-transform:none;letter-spacing:0;">$${toppingPrice.toFixed(2)} each</span></div>`
+    : `<div class="slot-section-label">&#x1F336;&#xFE0F; TOPPINGS &nbsp;<span style="font-size:10px;color:var(--muted2);font-family:'Barlow',sans-serif;font-weight:600;text-transform:none;letter-spacing:0;">$${toppingPrice.toFixed(2)} each</span></div>`;
+
+  const secondSection = s.halfHalf ? `
+    <div class="slot-section-label" style="border-left:3px solid var(--red);background:rgba(232,32,26,0.06);">&#x25D1; SECOND HALF &nbsp;<span style="font-size:10px;color:var(--muted2);font-family:'Barlow',sans-serif;font-weight:600;text-transform:none;letter-spacing:0;">$${toppingPrice.toFixed(2)} each</span></div>
+    ${buildTopGrid(s.halfToppings, 'data-gs-half', 'gsToggleHalfTop')}
+  ` : '';
+
+  const badges = [
+    s.halal ? '<span class="mbadge mbadge-halal" style="font-size:12px;">&#x1F319; Halal</span>' : '',
+    s.veg   ? '<span class="mbadge mbadge-veg"   style="font-size:12px;">&#x1F331; Veg</span>'  : ''
+  ].filter(Boolean).join(' ');
+
+  document.getElementById('gs-body').innerHTML = `
+    <div style="margin:14px 18px 0;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">
+      <div style="font-size:13px;color:var(--muted2);line-height:1.6;">${s.desc}</div>
+      ${badges ? '<div style="margin-top:8px;display:flex;gap:6px;">' + badges + '</div>' : ''}
+    </div>
+    <div class="slot-section-label">&#x1F4CF; SIZE</div>
+    ${sizeRow}
+    <div class="slot-section-label">&#x1F35E; CRUST</div>
+    ${crustRow}
+    ${hhToggle}
+    ${firstLabel}
+    ${buildTopGrid(s.extraToppings, 'data-gs-top', 'gsToggleTop')}
+    ${secondSection}
+  `;
+  updateGourmetFooter();
+}
+
+function gsToggleHH() {
+  gsState.halfHalf = !gsState.halfHalf;
+  if (!gsState.halfHalf) gsState.halfToppings = [];
+  renderGourmetSheet();
+}
+
+function gsToggleHalfTop(name) {
+  const idx = gsState.halfToppings.indexOf(name);
+  if (idx > -1) gsState.halfToppings.splice(idx, 1);
+  else gsState.halfToppings.push(name);
+  document.querySelectorAll('[data-gs-half]').forEach(el => {
+    el.classList.toggle('sel', gsState.halfToppings.includes(el.getAttribute('data-gs-half')));
+  });
+  updateGourmetFooter();
+}
+function confirmGourmetSheet() {
+  const s = gsState;
+  if (!s.size || !s.crust) {
+    showToast('⚠️ Please select a size and crust', 'warning');
+    return;
+  }
+  // Toppings are optional - customers can choose 0 or more toppings
+  const sizeNameMap = {Sm:'Small', Md:'Medium', Lg:'Large', XL:'X-Large', Party:'Party'};
+  const toppingPrice = TOPPING_PRICES[sizeNameMap[s.size]];
+  const topCost = (s.extraToppings.length + (s.halfHalf ? s.halfToppings.length : 0)) * toppingPrice;
+  const total = s.sizePrice + topCost;
+  const sizeLabels = {Sm:'Small 10"',Md:'Medium 12"',Lg:'Large 14"',XL:'X-Large 16"',Party:'Party 24"'};
+  const sizeLabel = sizeLabels[s.size] || s.size;
+  let detail;
+  if (s.halfHalf) {
+    const L = s.extraToppings.length ? s.extraToppings.join(', ') : 'Plain';
+    const R = s.halfToppings.length  ? s.halfToppings.join(', ')  : 'Plain';
+    detail = `${sizeLabel} | ${s.crust} Crust | HALF & HALF\nLeft Half: ${L}\nRight Half: ${R}`;
+  } else {
+    const tops = s.extraToppings.length ? `\nToppings: ${s.extraToppings.join(', ')}` : '\nNo extra toppings';
+    detail = `${sizeLabel} | ${s.crust} Crust${tops}`;
+  }
+  const cartName = s.halfHalf ? s.name + ' (½&½)' : s.name;
+  cart.push({id:Date.now(), name: cartName, detail, price:total, emoji:s.emoji, qty:1});
+  updateCartBadge();
+  closeGourmetSheet();
+  showToast('🍕 ' + s.name + ' added to cart!');
+}
+
+// ══════════════════════════════════
+// WINGS CUSTOMIZER SHEET
+// ══════════════════════════════════
+const SAUCE_META = {
+  'Hot':          {cls:'sauce-hot',  icon:'🌶️', heat:'🔥🔥🔥 SPICY',    desc:'Classic buffalo heat'},
+  'Honey Garlic': {cls:'sauce-honey',icon:'🍯', heat:'🌶️ MILD-MEDIUM',   desc:'Sweet garlic flavour'},
+  'BBQ':          {cls:'sauce-bbq',  icon:'🍖', heat:'🌶️ MILD',          desc:'Smoky BBQ classic'},
+  'Mild':         {cls:'sauce-mild', icon:'😊', heat:'✨ MILD',           desc:'Great for everyone'},
+};
+const DIP_OPTIONS = [
+  {icon:'🧄', name:'Creamy Garlic', price:1.00},
+  {icon:'🌿', name:'Ranch',         price:1.00},
+  {icon:'🧡', name:'Cheddar Chipotle', price:1.00},
+  {icon:'🚫', name:'No Dip',        price:0},
+];
+
+let wingsState = {
+  type:'', size:'', price:0, emoji:'🍗',
+  availSauces:[],
+  sauce:'Hot',
+  serving:'on',   // 'on' | 'side' | 'plain'
+  dip:'No Dip',
+  notes:''
+};
+
+function openWingsSheet(type, size, price, emoji, availSauces) {
+  wingsState = {type, size, price, emoji, availSauces,
+    sauce: availSauces[0],
+    serving:'on', dip:'No Dip', notes:''};
+  document.getElementById('wingsSheetTitle').textContent = type + ' — ' + size;
+  document.getElementById('wingsSheetSub').textContent = '$' + price.toFixed(2) + ' · Customize below';
+  renderWingsSheet();
+  document.getElementById('wingsOverlay').classList.add('open');
+  document.getElementById('wingsSheet').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeWingsSheet() {
+  document.getElementById('wingsOverlay').classList.remove('open');
+  document.getElementById('wingsSheet').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function confirmWingsSheet() {
+  const s = wingsState;
+  const dipExtra = DIP_OPTIONS.find(d => d.name===s.dip)?.price || 0;
+  const total = s.price + dipExtra;
+  const servingLabel = s.serving==='on' ? 'Sauced on wings' : s.serving==='side' ? 'Sauce on the side' : 'Plain (no sauce)';
+  const detail = [
+    s.serving !== 'plain' ? s.sauce + ' sauce' : 'Plain — no sauce',
+    servingLabel,
+    s.dip !== 'No Dip' ? s.dip + ' dip (+$' + dipExtra.toFixed(2) + ')' : '',
+    s.notes ? 'Note: ' + s.notes : ''
+  ].filter(Boolean).join(' · ');
+  cart.push({id:Date.now(), name:s.type+' '+s.size, detail, price:total, emoji:s.emoji, qty:1});
+  updateCartBadge();
+  closeWingsSheet();
+    renderCart();
+  showToast('🍗 Wings added!');
+}
+function renderWingsSheet() {
+  const s = wingsState;
+  const dipExtra = DIP_OPTIONS.find(d => d.name===s.dip)?.price || 0;
+
+  // SAUCE GRID
+  let sauceGrid = '<div class="sauce-grid">';
+  s.availSauces.forEach(sname => {
+    const m = SAUCE_META[sname] || {cls:'sauce-mild',icon:'🍗',heat:'',desc:''};
+    const sel = s.sauce===sname && s.serving!=='plain' ? ' sel' : '';
+    sauceGrid += `<div class="sauce-card ${m.cls}${sel}" onclick="wSelect('sauce','${sname}')">
+      <span class="sauce-card-icon">${m.icon}</span>
+      <div class="sauce-card-name">${sname}</div>
+      <div class="sauce-card-heat">${m.heat}</div>
+    </div>`;
+  });
+  sauceGrid += '</div>';
+
+  // SERVING STYLE
+  const onSel  = s.serving==='on'    ? ' sel dt-opt-on'   : '';
+  const sideSel= s.serving==='side'  ? ' sel dt-opt-side' : '';
+  const plainSel=s.serving==='plain' ? ' sel dt-opt-plain': '';
+  const servHTML = `<div class="delivery-toggle">
+    <div class="dt-opt dt-opt-on${onSel}"   onclick="wSelect('serving','on')">
+      <span class="dt-icon">🍗</span>On Wings
+    </div>
+    <div class="dt-opt dt-opt-side${sideSel}" onclick="wSelect('serving','side')">
+      <span class="dt-icon">🫙</span>On the Side
+    </div>
+    <div class="dt-opt dt-opt-plain${plainSel}" onclick="wSelect('serving','plain')">
+      <span class="dt-icon">🚫</span>No Sauce
+    </div>
+  </div>`;
+
+  // DIP
+  let dipHTML = '<div class="dip-select">';
+  DIP_OPTIONS.forEach(d => {
+    const sel = s.dip===d.name ? ' sel':'';
+    const priceStr = d.price>0 ? ' +$'+d.price.toFixed(2) : '';
+    dipHTML += `<div class="dip-chip${sel}" onclick="wSelect('dip','${d.name}')">
+      ${d.icon} ${d.name}${priceStr}
+    </div>`;
+  });
+  dipHTML += '</div>';
+
+  // NOTES
+  const notesHTML = `<div style="padding:0 14px 14px;">
+    <div style="font-size:10px;color:var(--gold);font-family:'Barlow Condensed',sans-serif;font-weight:800;letter-spacing:2px;text-transform:uppercase;padding-bottom:8px;">📝 SPECIAL INSTRUCTIONS</div>
+    <input style="width:100%;background:var(--card2);border:1.5px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text);font-family:'Barlow',sans-serif;font-size:13px;outline:none;" 
+      placeholder="Extra crispy, extra sauce, no garlic..."
+      value="${s.notes}"
+      oninput="wingsState.notes=this.value;updateWingsFooter()">
+  </div>`;
+
+  document.getElementById('wingsSheetBody').innerHTML =
+    `<div class="wings-order-card" style="margin-bottom:14px;">
+       <div class="woc-head">
+         <div class="woc-title">🍗 ${s.type}</div>
+         <div class="woc-count">${s.size}</div>
+       </div>
+       <div class="slot-section-label">🌶️ PICK YOUR SAUCE</div>
+       ${sauceGrid}
+       <div class="slot-section-label">🫙 SAUCE SERVING STYLE</div>
+       ${servHTML}
+       <div class="slot-section-label">🧄 ADD A DIPPING SAUCE</div>
+       ${dipHTML}
+       ${notesHTML}
+     </div>`;
+
+  updateWingsFooter();
+}
+function wSelect(field, val) {
+  if (field==='serving' && val==='plain') { wingsState.serving='plain'; }
+  else if (field==='serving') { wingsState.serving=val; }
+  else if (field==='sauce') { wingsState.sauce=val; if(wingsState.serving==='plain') wingsState.serving='on'; }
+  else { wingsState[field]=val; }
+  renderWingsSheet();
+}
+function updateWingsFooter() {
+  const s = wingsState;
+  const dipExtra = DIP_OPTIONS.find(d => d.name===s.dip)?.price || 0;
+  const total = s.price + dipExtra;
+  const servingLabel = s.serving==='on' ? 'on wings' : s.serving==='side' ? 'on the side' : 'no sauce';
+  const sauceLabel = s.serving==='plain' ? 'Plain' : s.sauce+' ('+servingLabel+')';
+  document.getElementById('wingsFooterLabel').textContent = sauceLabel + (s.dip!=='No Dip' ? ' · '+s.dip : '');
+  document.getElementById('wingsFooterPrice').textContent = '$'+total.toFixed(2);
+}
+
+// ══════════════════════════════════
+// LOYALTY STAMPS INIT
+// ══════════════════════════════════
+function initLoyalty() {
+  const el = document.getElementById('loyalty-stamps');
+  if (!el) return;
+  const filled = 6;
+  let html = '';
+  for (let i=0;i<10;i++) {
+    html += `<div class="lstamp${i<filled?' filled':''}">`;
+    html += i<filled ? '🍕' : '○';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+initLoyalty();
+
+// ══════════════════════════════════
+// PROMO CODE
+// ══════════════════════════════════
+const PROMO_CODES = {
+  'FIRST10': {label:'10% off your first order', discount:0.10, type:'percent'},
+  'WINGS2':  {label:'Free 6pc wings', discount:6.99, type:'fixed'},
+  'PICKUP5': {label:'$5 off pickup orders', discount:5.00, type:'fixed'},
+};
+let appliedPromo = null;
+function applyPromo() {
+  var input = document.getElementById('promo-input');
+  var code = (input && input.value) ? input.value.trim().toUpperCase() : '';
+  if (!code) { showToast('Enter a promo code', 'error'); return; }
+  var url = window._supaUrl;
+  var key = window._supaKey;
+  if (!url || !key) { showToast('Invalid promo code', 'error'); return; }
+  fetch(url + '/rest/v1/deals?select=*&code=eq.' + code, {
+    headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data || data.length === 0) { showToast('Invalid promo code', 'error'); return; }
+    var deal = data[0];
+    if (!deal.is_active) { showToast('This deal is no longer active', 'error'); return; }
+    var currentType = window.orderType || 'pickup';
+    if (deal.order_type && deal.order_type !== 'all') {
+      if (deal.order_type !== currentType) {
+        showToast('This deal is for ' + deal.order_type + ' orders only!', 'error');
+        return;
+      }
+    }
+    if (deal.discount_type === 'percentage') {
+      appliedPromo = { type: 'percent', discount: deal.discount_value / 100, code: deal.code };
+      renderCart();
+      showToast('Promo applied: ' + deal.discount_value + '% off!', 'success');
+    } else if (deal.discount_type === 'fixed') {
+      appliedPromo = { type: 'fixed', discount: deal.discount_value, code: deal.code };
+      renderCart();
+      showToast('Promo applied: $' + deal.discount_value + ' off!', 'success');
+    } else if (deal.discount_type === 'free_delivery') {
+      appliedPromo = { type: 'free_delivery', discount: 0, code: deal.code };
+      renderCart();
+      showToast('Promo applied: Free Delivery!', 'success');
+    } else {
+      appliedPromo = { type: deal.discount_type, discount: deal.discount_value || 0, code: deal.code };
+      renderCart();
+      showToast('Promo applied: ' + deal.name, 'success');
+    }
+  }).catch(function(e) { showToast('Invalid promo code', 'error'); });
+}
+
+// ══════════════════════════════════
+// TOAST
+// ══════════════════════════════════
+let toastTimer;
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  clearTimeout(toastTimer);
+  t.textContent = msg;
+  t.className = 'toast' + (type ? ' '+type : '') + ' show';
+  if (type === 'warning') {
+    t.style.background = 'rgba(245,166,35,0.95)';
+    t.style.color = '#000';
+  } else {
+    t.style.background = '';
+    t.style.color = '';
+  }
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+
+// ══════════════════════════════════
+// ACCOUNT SYSTEM
+// ══════════════════════════════════
+let currentUser = null; // {name, email, password, joinDate, stamps, orderHistory, savedAddress, birthday, totalSpent}
+const ACCOUNTS_DB = {}; // in-memory accounts store
+
+function openAuthModal(tab) {
+  document.getElementById('authOverlay').style.display = 'block';
+  document.getElementById('authModal').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  switchAuthTab(tab || 'signup');
+}
+function closeAuthModal() {
+  document.getElementById('authOverlay').style.display = 'none';
+  document.getElementById('authModal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+function switchAuthTab(tab) {
+  const isSignup = tab === 'signup';
+  document.getElementById('auth-modal-title').textContent = isSignup ? 'CREATE ACCOUNT' : 'SIGN IN';
+  const su = document.getElementById('auth-tab-signup');
+  const si = document.getElementById('auth-tab-login');
+  su.style.background = isSignup ? 'var(--red)' : 'transparent';
+  su.style.color = isSignup ? '#fff' : 'var(--muted2)';
+  si.style.background = !isSignup ? 'var(--red)' : 'transparent';
+  si.style.color = !isSignup ? '#fff' : 'var(--muted2)';
+
+  const area = document.getElementById('auth-form-area');
+  const inp = (id, ph, type='text', ac='off') => `<input id="${id}" type="${type}" placeholder="${ph}" autocomplete="${ac}" inputmode="${type==='email'?'email':type==='tel'?'tel':'text'}"
+    style="width:100%;background:rgba(255,255,255,0.07);border:1.5px solid rgba(255,255,255,0.1);border-radius:11px;padding:13px 15px;color:#fff;font-family:'Barlow',sans-serif;font-size:16px;outline:none;box-sizing:border-box;margin-bottom:10px;">`;
+
+  if (isSignup) {
+    area.innerHTML = `
+      <div id="auth-err" style="display:none;background:rgba(232,32,26,0.15);border:1px solid rgba(232,32,26,0.4);border-radius:10px;padding:10px 14px;font-size:13px;color:#ff6b6b;margin-bottom:12px;"></div>
+      ${inp('su-name','Full Name','text','name')}
+      ${inp('su-email','Email Address','email','email')}
+      ${inp('su-phone','Phone Number (optional)','tel','tel')}
+      ${inp('su-pass','Password (min 6 chars)','password','new-password')}
+      <button onclick="doSignup()" style="width:100%;padding:15px;background:var(--red);color:#fff;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:2px;border-radius:12px;cursor:pointer;margin-top:4px;box-shadow:0 4px 20px rgba(232,32,26,0.4);">Create My Account 🍕</button>
+      <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted2);">Already have an account? <span onclick="switchAuthTab('login')" style="color:var(--gold);cursor:pointer;font-weight:700;">Sign in →</span></div>`;
+  } else {
+    area.innerHTML = `
+      <div id="auth-err" style="display:none;background:rgba(232,32,26,0.15);border:1px solid rgba(232,32,26,0.4);border-radius:10px;padding:10px 14px;font-size:13px;color:#ff6b6b;margin-bottom:12px;"></div>
+      ${inp('li-email','Email Address','email','email')}
+      ${inp('li-pass','Password','password','current-password')}
+      <button onclick="doLogin()" style="width:100%;padding:15px;background:var(--red);color:#fff;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:2px;border-radius:12px;cursor:pointer;margin-top:4px;box-shadow:0 4px 20px rgba(232,32,26,0.4);">Sign In →</button>
+      <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted2);">No account yet? <span onclick="switchAuthTab('signup')" style="color:var(--gold);cursor:pointer;font-weight:700;">Create one →</span></div>`;
+  }
+}
+
+function authErr(msg) {
+  const el = document.getElementById('auth-err');
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+}
+function doSignup() {
+  const name  = document.getElementById('su-name').value.trim();
+  const email = document.getElementById('su-email').value.trim().toLowerCase();
+  const pass  = document.getElementById('su-pass').value;
+  const phone = document.getElementById('su-phone').value.trim();
+  if (!name)            { authErr('Please enter your name'); return; }
+  if (!email || !email.includes('@')) { authErr('Enter a valid email'); return; }
+  if (pass.length < 6)  { authErr('Password must be at least 6 characters'); return; }
+  if (ACCOUNTS_DB[email]) { authErr('An account with that email already exists'); return; }
+  const user = {name, email, pass, phone,
+    joinDate: new Date().toLocaleDateString('en-CA'),
+    stamps:0, points:50, orderHistory:[], savedAddress:null, totalSpent:0};
+  ACCOUNTS_DB[email] = user;
+  currentUser = user;
+  closeAuthModal();
+  onLogin();
+  showToast('🎉 Welcome, ' + name.split(' ')[0] + '! Account created with 50 bonus points!');
+}
+function doLogin() {
+  const email = document.getElementById('li-email').value.trim().toLowerCase();
+  const pass  = document.getElementById('li-pass').value;
+  const user  = ACCOUNTS_DB[email];
+  if (!user)           { authErr('No account found with that email'); return; }
+  if (user.pass !== pass) { authErr('Incorrect password'); return; }
+  currentUser = user;
+  closeAuthModal();
+  onLogin();
+  showToast('👋 Welcome back, ' + user.name.split(' ')[0] + '!');
+}
+function signOut() {
+  currentUser = null;
+  renderAccountPage();
+  updateHomeLoyalty();
+  showToast('Signed out. See you soon! 🍕');
+}
+function onLogin() {
+  // Auto-fill saved address
+  if (currentUser.savedAddress) {
+    const a = currentUser.savedAddress;
+    Object.assign(deliveryAddress, a);
+    deliveryAddress._ts = deliveryAddress._tc = deliveryAddress._tp = true;
+  }
+  renderAccountPage();
+  updateHomeLoyalty();
+  renderAddressBlock();
+}
+
+function renderAccountPage() {
+  const guest  = document.getElementById('acct-guest');
+  const loggedin = document.getElementById('acct-loggedin');
+  const navIcon = document.getElementById('nav-account-icon');
+  if (!currentUser) {
+    guest.style.display    = 'block';
+    loggedin.style.display = 'none';
+    if (navIcon) navIcon.textContent = '👤';
+    return;
+  }
+  guest.style.display    = 'none';
+  loggedin.style.display = 'block';
+  if (navIcon) navIcon.textContent = '⭐';
+
+  const u = currentUser;
+  const initials = u.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
+  document.getElementById('acct-avatar').textContent = initials;
+  document.getElementById('acct-hello').textContent = 'Hi, ' + u.name.split(' ')[0] + '!';
+  document.getElementById('acct-email-display').textContent = u.email;
+  document.getElementById('acct-member-since').textContent = 'Member since ' + u.joinDate;
+
+  // Stamps & loyalty
+  const stamps = u.stamps;
+  const cycle  = stamps % 10;
+  const freeEarned = Math.floor(stamps / 10);
+  const pct = (cycle / 10) * 100;
+  document.getElementById('acct-loyalty-bar').style.width = pct + '%';
+  document.getElementById('acct-loyalty-sub').textContent =
+    freeEarned > 0 ? freeEarned + ' free pizza' + (freeEarned>1?'s':'') + ' earned!' : 'Earn a stamp with every pizza order';
+
+  // Points display
+  document.getElementById('acct-points-display').textContent = u.points || 0;
+
+  // Tier
+  let tier = '🍕 Member';
+  if (stamps >= 50) tier = '👑 VIP Gold';
+  else if (stamps >= 20) tier = '⭐ Silver';
+  else if (stamps >= 10) tier = '🔥 Regular';
+  document.getElementById('acct-tier-badge').textContent = tier;
+
+  // Next reward display
+  const pts = u.points || 0;
+  let nextReward = '100 pts = Cheesy Bread';
+  if (pts >= 350) nextReward = '✨ All rewards unlocked!';
+  else if (pts >= 200) nextReward = '200 pts = Free Pizza';
+  else if (pts >= 100) nextReward = '100 pts = Cheesy Bread';
+  document.getElementById('acct-next-reward').textContent = nextReward;
+
+  // Stamp icons
+  const stEl = document.getElementById('acct-stamps');
+  let shtml = '';
+  for (let i=0;i<10;i++) {
+    const filled = i < cycle;
+    const isFree = cycle === 0 && stamps > 0 && i === 9;
+    shtml += `<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;border:2px solid ${filled?'var(--gold)':'rgba(255,255,255,0.1)'};background:${filled?'rgba(245,166,35,0.2)':'rgba(255,255,255,0.04)'};transition:all .3s;">${filled?'🍕':'○'}</div>`;
+  }
+  stEl.innerHTML = shtml;
+
+  const need = 10 - cycle;
+  document.getElementById('acct-loyalty-msg').textContent =
+    cycle === 0 && stamps > 0 ? '🎉 You earned a FREE pizza! Show this to your server.' :
+    need === 1 ? '🔥 One more pizza for a FREE one!' :
+    `${cycle} of 10 stamps · ${need} more for a free pizza`;
+
+  // Saved address
+  const addrEl = document.getElementById('acct-address-display');
+  if (u.savedAddress && u.savedAddress.street) {
+    const a = u.savedAddress;
+    addrEl.innerHTML = `<div style="font-size:14px;color:#fff;font-weight:600;">${a.unit?'Unit '+a.unit+', ':''}${a.street}</div><div style="font-size:12px;color:var(--muted2);margin-top:3px;">${a.city}, ON · ${a.postal}</div>`;
+  } else {
+    addrEl.innerHTML = '<span style="color:var(--muted2);font-size:13px;">No address saved yet. Add one to check out faster.</span>';
+  }
+
+  // Total spent
+  document.getElementById('acct-total-spent').textContent = '$' + (u.totalSpent||0).toFixed(2);
+
+  // Order history
+  const histEl = document.getElementById('acct-order-history');
+  if (!u.orderHistory || !u.orderHistory.length) {
+    histEl.innerHTML = '<div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center;color:var(--muted2);font-size:13px;">No orders yet. Start ordering to build your history! 🍕</div>';
+  } else {
+    const realIdx = u.orderHistory.length - 1;
+    histEl.innerHTML = u.orderHistory.slice().reverse().map((o, ri) => {
+      const origIdx = realIdx - ri;
+      const itemCount = o.cartItems ? o.cartItems.reduce((s,c) => s+c.qty, 0) : o.items.length;
+      const timeAgo = (() => {
+        const d = new Date(o.date);
+        const now = new Date();
+        const days = Math.floor((now - d) / 86400000);
+        if (days === 0) return 'Today';
+        if (days === 1) return 'Yesterday';
+        if (days < 7) return days + ' days ago';
+        if (days < 30) return Math.floor(days/7) + 'w ago';
+        return o.date;
+      })();
+
+      let itemsHtml = '';
+      if (o.cartItems && o.cartItems.length) {
+        itemsHtml = o.cartItems.map(ci => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+              <span style="font-size:14px;flex-shrink:0;">${ci.emoji||'🍕'}</span>
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:12px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}</div>
+                ${ci.detail ? `<div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${ci.detail.replace(/\|/g,' · ').substring(0,120)}</div>` : ''}
+              </div>
+            </div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--muted2);flex-shrink:0;margin-left:8px;">$${(ci.price * ci.qty).toFixed(2)}</div>
+          </div>`).join('');
+      } else {
+        itemsHtml = o.items.map(it => `<div style="padding:4px 0;font-size:11px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,0.04);">🍕 ${it}</div>`).join('');
+      }
+
+      return `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:10px;">
+        <!-- Header -->
+        <div style="padding:14px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div style="width:36px;height:36px;border-radius:10px;background:rgba(232,32,26,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">${o.emoji||'🍕'}</div>
+              <div style="min-width:0;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:#fff;letter-spacing:.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${o.name}</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+                  <span style="font-size:11px;color:var(--muted2);">${timeAgo}</span>
+                  <span style="width:3px;height:3px;border-radius:50%;background:var(--muted);"></span>
+                  <span style="font-size:11px;color:var(--muted2);">${o.type==='delivery'?'🚗 Delivery':'📍 Pickup'}</span>
+                  <span style="width:3px;height:3px;border-radius:50%;background:var(--muted);"></span>
+                  <span style="font-size:11px;color:var(--muted2);">${itemCount} item${itemCount!==1?'s':''}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--red);line-height:1;">$${o.total.toFixed(2)}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;">incl. tax</div>
+          </div>
+        </div>
+
+        <!-- Item Details (collapsible) -->
+        <div id="order-detail-${origIdx}" style="display:none;padding:0 16px;">
+          <div style="border-top:1px solid var(--border);padding-top:8px;">
+            ${itemsHtml}
+          </div>
+        </div>
+
+        <!-- Action Bar -->
+        <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:center;">
+          <button onclick="document.getElementById('order-detail-${origIdx}').style.display=document.getElementById('order-detail-${origIdx}').style.display==='none'?'block':'none';this.textContent=document.getElementById('order-detail-${origIdx}').style.display==='none'?'View Details ▾':'Hide Details ▴'" style="flex:1;padding:9px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;color:var(--muted2);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:.5px;cursor:pointer;">View Details ▾</button>
+          <button onclick="reorderPastOrder(${origIdx})" style="flex:1;padding:9px;background:rgba(232,32,26,0.12);border:1.5px solid rgba(232,32,26,0.3);border-radius:10px;color:var(--red);font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;letter-spacing:1px;cursor:pointer;">🔄 REORDER</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function updateHomeLoyalty() {
+  const titleEl  = document.getElementById('home-loyalty-title');
+  const subEl    = document.getElementById('home-loyalty-sub');
+  const barEl    = document.getElementById('home-loyalty-bar');
+  const stampsEl = document.getElementById('loyalty-stamps');
+  const statusEl = document.getElementById('loyalty-status');
+  const ctaEl    = document.getElementById('home-loyalty-cta');
+  if (!titleEl) return;
+  if (!currentUser) {
+    titleEl.textContent  = 'JOIN & EARN FREE PIZZA';
+    subEl.textContent    = 'Create an account to start earning stamps. Buy 9, get your 10th free!';
+    barEl.style.width    = '0%';
+    stampsEl.innerHTML   = '';
+    statusEl.textContent = '';
+    if (ctaEl) ctaEl.style.display = 'inline-block';
+    return;
+  }
+  const cycle = currentUser.stamps % 10;
+  const pct   = (cycle / 10) * 100;
+  titleEl.textContent = cycle === 0 && currentUser.stamps > 0 ? '🎉 FREE PIZZA EARNED!' : 'FREE PIZZA PROGRESS';
+  subEl.textContent   = 'Hi ' + currentUser.name.split(' ')[0] + '! Keep ordering to fill your card.';
+  barEl.style.width   = pct + '%';
+  let shtml = '';
+  for (let i=0;i<10;i++) {
+    shtml += `<div class="lstamp${i<cycle?' filled':''}">${i<cycle?'🍕':'○'}</div>`;
+  }
+  stampsEl.innerHTML   = shtml;
+  statusEl.textContent = `${cycle} of 10 stamps · ${10-cycle} more for a free pizza`;
+  if (ctaEl) ctaEl.style.display = 'none';
+}
+
+// Reorder a past order
+function reorderPastOrder(idx) {
+  if (!currentUser || !currentUser.orderHistory || !currentUser.orderHistory[idx]) {
+    showToast('⚠️ Order not found', 'warning');
+    return;
+  }
+  const order = currentUser.orderHistory[idx];
+  if (!order.cartItems || !order.cartItems.length) {
+    showToast('⚠️ This order doesn\'t have enough detail to reorder. Place a new order instead!', 'warning');
+    return;
+  }
+  // Add all items to cart
+  order.cartItems.forEach(ci => {
+    cart.push({id: Date.now() + Math.random(), name: ci.name, detail: ci.detail || '', price: ci.price, emoji: ci.emoji || '🍕', qty: ci.qty || 1});
+  });
+  renderCart();
+  showPage('cart');
+  showToast('🔄 ' + order.cartItems.length + ' item' + (order.cartItems.length > 1 ? 's' : '') + ' added to cart!', 'success');
+}
+
+// Award a stamp when order is placed
+function awardStamp() {
+  if (!currentUser) return;
+  currentUser.stamps++;
+  updateHomeLoyalty();
+  renderAccountPage();
+}
+
+// Redeem a reward with points
+function redeemReward(pts) {
+  if (!currentUser) { showToast('⚠️ Please sign in to redeem rewards', 'warning'); return; }
+  const currentPts = currentUser.points || 0;
+  if (currentPts < pts) { showToast('⚠️ Not enough points for this reward', 'warning'); return; }
+  currentUser.points = currentPts - pts;
+  const rewardName = pts === 100 ? 'Cheesy Bread' : pts === 200 ? 'Free Pizza' : 'Medium 3-Top + Dip';
+  showToast('🎉 ' + rewardName + ' reward applied to your next order!', 'success');
+  renderAccountPage();
+}
+
+// ══════════════════════════════════
+// FLOATING CART BAR + DESKTOP SIDEBAR
+// ══════════════════════════════════
+function updateFloatingCart() {
+  const count = cart.reduce((s,i) => s + i.qty, 0);
+  const sub   = cart.reduce((s,i) => s + i.price * i.qty, 0);
+  const deliveryFee = orderType === 'delivery' ? (window.sdpSettings?.delivery_fee || 5) : 0;
+  const total = (sub + deliveryFee) * 1.13;
+
+  // Floating bar
+  const fc = document.getElementById('floating-cart');
+  const fcCount = document.getElementById('fc-count');
+  const fcPrice = document.getElementById('fc-price');
+  if (fc && fcCount && fcPrice) {
+    fcCount.textContent = count;
+    fcPrice.textContent = '$' + total.toFixed(2);
+    // Only show on non-cart pages
+    const onCartPage = document.getElementById('page-cart')?.classList.contains('active');
+    fc.classList.toggle('visible', count > 0 && !onCartPage);
+  }
+
+  // Desktop sidebar cart
+  const dsPreview = document.getElementById('ds-cart-preview');
+  const dsFooter  = document.getElementById('ds-cart-footer');
+  const dsTotalPrice = document.getElementById('ds-total-price');
+  if (!dsPreview) return;
+  if (count === 0) {
+    dsPreview.innerHTML = '<div class="ds-cart-empty">🍕 Your cart is empty<br><span style="font-size:12px;">Add items to start your order</span></div>';
+    if (dsFooter) dsFooter.style.display = 'none';
+  } else {
+    dsPreview.innerHTML = cart.map(item => `
+      <div class="ds-cart-item">
+        <div class="ds-cart-emoji">${item.emoji}</div>
+        <div>
+          <div class="ds-cart-name">${item.name}</div>
+          <div class="ds-cart-qty">Qty: ${item.qty}</div>
+        </div>
+        <div class="ds-cart-price">$${(item.price * item.qty).toFixed(2)}</div>
+      </div>`).join('');
+    if (dsFooter) { dsFooter.style.display = 'block'; }
+    if (dsTotalPrice) { dsTotalPrice.textContent = '$' + total.toFixed(2); }
+  }
+}
+
+
+// ══════════════════════════════════
+// CART UPSELLS (with customizer)
+// ══════════════════════════════════
+const UPSELL_ITEMS = [
+  {name:'Garlic Bread',    emoji:'🥖', price:4.99, label:'Plain or Cheesy',  key:'bread',   action:"openGarlicSheet()"},
+  {name:'6pc Wings',       emoji:'🍗', price:7.99, label:'Pick your sauce',  key:'wings6',  action:"openWingsSheet('Bone-In Wings','6pc',7.99,'🍗',['Hot','Honey Garlic','BBQ','Mild'])"},
+  {name:'Can of Pop',      emoji:'🥫', price:1.19, label:'Pick your flavour',key:'canpop',  action:"openUpsellPop('can')"},
+  {name:'2L Pop',          emoji:'🥤', price:3.00, label:'Pick your flavour',key:'2lpop',   action:"openUpsellPop('2l')"},
+  {name:'Dipping Sauce',   emoji:'🫙', price:1.00, label:'Pick your dip',    key:'dip',     action:"openUpsellDip()"},
+  {name:'Chocolate Milk',  emoji:'🍫', price:3.00, label:'473ml · Creamy',   key:'milk',    action:"quickAdd('Chocolate Milk','473ml · Creamy & cold',3.00,'🍫')"},
+];
+function cartUpsells() {
+  const cartNames = cart.map(i => i.name.toLowerCase());
+  const toShow = UPSELL_ITEMS.filter(u => !cartNames.some(n => n.includes(u.key.slice(0,4)))).slice(0,5);
+  if (!toShow.length) return '<div style="font-size:13px;color:var(--muted2);padding:8px 0;">You\'re all set! 🎉</div>';
+  return toShow.map(u => `
+    <div onclick="${u.action}"
+      style="flex-shrink:0;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:10px 12px;cursor:pointer;min-width:100px;text-align:center;transition:all .15s;">
+      <div style="font-size:26px;margin-bottom:4px;">${u.emoji}</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;color:#fff;line-height:1.2;">${u.name}</div>
+      <div style="font-size:10px;color:var(--gold);margin:2px 0 6px;font-weight:700;">✏️ ${u.label}</div>
+      <div style="background:var(--red);color:#fff;border-radius:20px;padding:4px 10px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;">+$${u.price.toFixed(2)}</div>
+    </div>`).join('');
+}
+function upsellAdd(name, detail, price, emoji) {
+  const existing = cart.find(i => i.name === name);
+  if (existing) { existing.qty++; }
+  else { cart.push({id:Date.now(), name, detail, price, emoji, qty:1}); }
+  updateCartBadge();
+  renderCart();
+  showToast('✅ ' + name + ' added!');
+}
+
+// ── Quick upsell sheets for pop and dip ──────────────────────────────
+function openUpsellPop(type) {
+  const is2L = type === '2l';
+  const flavors = is2L ? ['Coke','Diet Coke','Sprite','Canada Dry'] : ['Coke','Diet Coke','Coke Zero','Sprite'];
+  const price = is2L ? 3.00 : 1.19;
+  const name  = is2L ? '2L Pop' : 'Can of Pop';
+  const emoji = is2L ? '🥤' : '🥫';
+  const size  = is2L ? '2L bottle' : '355ml can';
+  const overlay = document.getElementById('upsellPopOverlay');
+  const sheet   = document.getElementById('upsellPopSheet');
+  document.getElementById('upsellPopTitle').textContent = name;
+  const grid = document.getElementById('upsellPopGrid');
+  grid.innerHTML = flavors.map(f => `
+    <div onclick="upsellPickPop('${name}','${f}',${price},'${emoji}','${size}')"
+      style="flex:1;min-width:80px;padding:12px 8px;text-align:center;border-radius:12px;cursor:pointer;border:1.5px solid var(--border);background:rgba(255,255,255,0.04);font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:#fff;transition:all .15s;"
+      onmousedown="this.style.borderColor='var(--red)'" onmouseup="this.style.borderColor='var(--border)'">
+      ${f}
+    </div>`).join('');
+  overlay.style.display = 'block';
+  sheet.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+function closeUpsellPop() {
+  document.getElementById('upsellPopOverlay').style.display = 'none';
+  document.getElementById('upsellPopSheet').style.display = 'none';
+  document.body.style.overflow = '';
+}
+function upsellPickPop(name, flavour, price, emoji, size) {
+  cart.push({id:Date.now(), name, detail: flavour + ' · ' + size, price, emoji, qty:1});
+  updateCartBadge();
+  closeUpsellPop();
+  renderCart();
+  showToast('✅ ' + name + ' (' + flavour + ') added!');
+}
+
+function openUpsellDip() {
+  const overlay = document.getElementById('upsellDipOverlay');
+  const sheet   = document.getElementById('upsellDipSheet');
+  overlay.style.display = 'block';
+  sheet.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+function closeUpsellDip() {
+  document.getElementById('upsellDipOverlay').style.display = 'none';
+  document.getElementById('upsellDipSheet').style.display = 'none';
+  document.body.style.overflow = '';
+}
+function upsellPickDip(name) {
+  cart.push({id:Date.now(), name:'Dipping Sauce', detail: name, price:1.00, emoji:'🫙', qty:1});
+  updateCartBadge();
+  closeUpsellDip();
+  renderCart();
+  showToast('✅ ' + name + ' dip added!');
+}
+
+// ── CUSTOM CATERING BUILDER ──
+const cc = {
+  eventType: '',
+  pizzaSize: 'Large',
+  pizzaSizePrice: 16.99,
+  pizzas: [], // Array of {idx, crust, sauce, cheese, toppings:[], expanded:bool}
+  wings: 0,
+  wingSauce: 'Hot',
+  wingStyle: 'Sauce on Wings',
+  pops: {Coke:0, 'Diet Coke':0, Sprite:0, 'Canada Dry':0, Pepsi:0, 'Orange Crush':0},
+  cheesy: 0,
+  garlic: 0,
+  wedges: 0,
+  dips: {'Creamy Garlic':0, Ranch:0, 'Cheddar Chipotle':0, Marinara:0, 'Hot Sauce':0, 'Honey Mustard':0, 'Blue Cheese':0},
+  plates: false,
+  utensils: false,
+  quickMode: false,
+  quickPizzas: {pepperoni: 0, halalpep: 0, cheese: 0}
+};
+
+const ccPricing = {
+  pizza: {Large:16.99, 'X-Large':19.99, Party:24.99},
+  wingPerPiece: 1.00,
+  pop: 3.00,
+  cheesy: 8.99,
+  garlic: 4.99,
+  wedges: 5.99,
+  dip: 1.00,
+  stuffedCrustExtra: 3.00,
+  doubleMozzExtra: 1.50,
+  threeCheeseExtra: 1.00
+};
+
+function ccSetEvent(type, el) {
+  cc.eventType = type;
+  document.querySelectorAll('.cc-event-type').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.06)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(245,166,35,0.15)';
+  el.style.borderColor = 'var(--gold)';
+  el.style.color = 'var(--gold)';
+}
+
+function ccSetPizzaSize(size, el) {
+  cc.pizzaSize = size;
+  cc.pizzaSizePrice = ccPricing.pizza[size];
+  document.querySelectorAll('.cc-pizza-size-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.04)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(245,166,35,0.15)';
+  el.style.borderColor = 'var(--gold)';
+  el.style.color = 'var(--gold)';
+  ccCalcTotal();
+}
+
+function ccAddPizza(delta) {
+  if (cc.quickMode) {
+    showToast('Use the quick order rows below to set pizza quantities', 'warning');
+    return;
+  }
+  const newCount = Math.max(0, cc.pizzas.length + delta);
+  while (cc.pizzas.length > newCount) cc.pizzas.pop();
+  while (cc.pizzas.length < newCount) {
+    cc.pizzas.push({crust: 'Hand Tossed', sauce: 'Classic Tomato', cheese: 'Regular Mozzarella', toppings: [], expanded: cc.pizzas.length === 0});
+  }
+  const qtyEl = document.getElementById('cc-pizza-qty');
+  if (qtyEl) qtyEl.value = cc.pizzas.length;
+  const modeToggle = document.getElementById('cc-pizza-mode-toggle');
+  if (modeToggle) modeToggle.style.display = cc.pizzas.length > 0 ? 'block' : 'none';
+  ccRenderPizzaCards();
+  ccCalcTotal();
+}
+
+function ccSetPizzaCount(count) {
+  if (cc.quickMode) {
+    showToast('Use the quick order rows below to set pizza quantities', 'warning');
+    const qtyEl = document.getElementById('cc-pizza-qty');
+    const total = (cc.quickPizzas.pepperoni||0) + (cc.quickPizzas.halalpep||0) + (cc.quickPizzas.cheese||0);
+    if (qtyEl) qtyEl.value = total;
+    return;
+  }
+  count = Math.max(0, Math.min(200, count));
+  while (cc.pizzas.length > count) cc.pizzas.pop();
+  while (cc.pizzas.length < count) {
+    cc.pizzas.push({crust: 'Hand Tossed', sauce: 'Classic Tomato', cheese: 'Regular Mozzarella', toppings: [], expanded: cc.pizzas.length === 0});
+  }
+  const qtyEl = document.getElementById('cc-pizza-qty');
+  if (qtyEl) qtyEl.value = count;
+  const modeToggle = document.getElementById('cc-pizza-mode-toggle');
+  if (modeToggle) modeToggle.style.display = cc.pizzas.length > 0 ? 'block' : 'none';
+  ccRenderPizzaCards();
+  ccCalcTotal();
+}
+
+function ccRenderPizzaCards() {
+  const container = document.getElementById('cc-pizza-cards');
+  if (!container) return;
+  container.innerHTML = '';
+
+  cc.pizzas.forEach((pizza, idx) => {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:rgba(245,166,35,0.12);border:1.5px solid rgba(245,166,35,0.25);border-left:4px solid var(--gold);border-radius:10px;padding:12px;';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-bottom:' + (pizza.expanded ? '12px' : '0');
+    header.onclick = () => ccTogglePizzaCard(idx);
+    header.innerHTML = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;color:var(--gold);">Pizza ${idx+1}</div><div style="font-size:18px;">▼</div>`;
+    card.appendChild(header);
+
+    if (pizza.expanded) {
+      // Crust
+      const crustDiv = document.createElement('div');
+      crustDiv.style.cssText = 'margin-bottom:10px;';
+      crustDiv.innerHTML = `<div style="font-size:10px;color:var(--muted2);margin-bottom:4px;font-weight:700;">CRUST</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <button onclick="ccSetPizzaCrust(${idx}, 'Hand Tossed', this)" class="cc-crust-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Hand Tossed</button>
+          <button onclick="ccSetPizzaCrust(${idx}, 'Thin Crust', this)" class="cc-crust-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Thin Crust</button>
+          <button onclick="ccSetPizzaCrust(${idx}, 'Thick Crust', this)" class="cc-crust-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Thick Crust</button>
+          <button onclick="ccSetPizzaCrust(${idx}, 'Stuffed Crust +\$3', this)" class="cc-crust-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Stuffed +\$3</button>
+        </div>`;
+      card.appendChild(crustDiv);
+
+      // Sauce
+      const sauceDiv = document.createElement('div');
+      sauceDiv.style.cssText = 'margin-bottom:10px;';
+      sauceDiv.innerHTML = `<div style="font-size:10px;color:var(--muted2);margin-bottom:4px;font-weight:700;">SAUCE</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+          <button onclick="ccSetPizzaSauce(${idx}, 'Classic Tomato', this)" class="cc-sauce-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Classic</button>
+          <button onclick="ccSetPizzaSauce(${idx}, 'Creamy Garlic', this)" class="cc-sauce-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Creamy Garlic</button>
+          <button onclick="ccSetPizzaSauce(${idx}, 'BBQ', this)" class="cc-sauce-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">BBQ</button>
+        </div>`;
+      card.appendChild(sauceDiv);
+
+      // Cheese
+      const cheeseDiv = document.createElement('div');
+      cheeseDiv.style.cssText = 'margin-bottom:10px;';
+      cheeseDiv.innerHTML = `<div style="font-size:10px;color:var(--muted2);margin-bottom:4px;font-weight:700;">CHEESE</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+          <button onclick="ccSetPizzaCheese(${idx}, 'Regular Mozzarella', this)" class="cc-cheese-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Regular</button>
+          <button onclick="ccSetPizzaCheese(${idx}, 'Double Mozzarella +\$1.50', this)" class="cc-cheese-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">Double +\$1.50</button>
+          <button onclick="ccSetPizzaCheese(${idx}, '3-Cheese Blend +\$1', this)" class="cc-cheese-btn" style="padding:6px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted2);cursor:pointer;transition:all .2s;">3-Cheese +\$1</button>
+        </div>`;
+      card.appendChild(cheeseDiv);
+
+      // Toppings
+      const toppingsDiv = document.createElement('div');
+      toppingsDiv.style.cssText = 'margin-bottom:10px;';
+      const toppingsLabel = document.createElement('div');
+      toppingsLabel.style.cssText = 'font-size:10px;color:var(--muted2);margin-bottom:4px;font-weight:700;display:flex;justify-content:space-between;';
+      toppingsLabel.innerHTML = `<span>TOPPINGS</span><span style="color:var(--gold);">${pizza.toppings.length}/3 FREE</span>`;
+      toppingsDiv.appendChild(toppingsLabel);
+
+      const toppingsGrid = document.createElement('div');
+      toppingsGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:4px;max-height:120px;overflow-y:auto;';
+
+      const allTops = [...ALL_TOPPINGS_MEATS, ...ALL_TOPPINGS_VEG, ...ALL_TOPPINGS_CHEESE];
+      allTops.forEach(t => {
+        const isSelected = pizza.toppings.includes(t.name);
+        const btn = document.createElement('button');
+        btn.style.cssText = `padding:4px 6px;border-radius:6px;font-size:9px;border:1px solid ${isSelected ? 'var(--gold)' : 'var(--border)'};background:${isSelected ? 'rgba(245,166,35,0.15)' : 'rgba(255,255,255,0.04)'};color:${isSelected ? 'var(--gold)' : 'var(--muted2)'};cursor:pointer;transition:all .2s;`;
+        btn.textContent = t.name;
+        btn.onclick = () => ccToggleTopping(idx, t.name, btn);
+        toppingsGrid.appendChild(btn);
+      });
+      toppingsDiv.appendChild(toppingsGrid);
+      card.appendChild(toppingsDiv);
+
+      // Summary
+      const summary = document.createElement('div');
+      summary.style.cssText = 'font-size:10px;color:var(--muted2);padding-top:8px;border-top:1px solid rgba(245,166,35,0.2);';
+      const summaryText = `${pizza.crust} | ${pizza.sauce} | ${pizza.cheese}${pizza.toppings.length > 0 ? ' | ' + pizza.toppings.join(', ') : ''}`;
+      summary.textContent = summaryText;
+      card.appendChild(summary);
+    }
+
+    container.appendChild(card);
+  });
+
+  const qtyEl = document.getElementById('cc-pizza-qty');
+  if (qtyEl) qtyEl.value = cc.pizzas.length;
+}
+
+function ccTogglePizzaCard(idx) {
+  cc.pizzas[idx].expanded = !cc.pizzas[idx].expanded;
+  ccRenderPizzaCards();
+}
+
+function ccSetPizzaCrust(idx, crust, el) {
+  cc.pizzas[idx].crust = crust;
+  document.querySelectorAll('.cc-crust-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.04)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(245,166,35,0.15)';
+  el.style.borderColor = 'var(--gold)';
+  el.style.color = 'var(--gold)';
+  ccCalcTotal();
+}
+
+function ccSetPizzaSauce(idx, sauce, el) {
+  cc.pizzas[idx].sauce = sauce;
+  document.querySelectorAll('.cc-sauce-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.04)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(245,166,35,0.15)';
+  el.style.borderColor = 'var(--gold)';
+  el.style.color = 'var(--gold)';
+  ccCalcTotal();
+}
+
+function ccSetPizzaCheese(idx, cheese, el) {
+  cc.pizzas[idx].cheese = cheese;
+  document.querySelectorAll('.cc-cheese-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.04)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(245,166,35,0.15)';
+  el.style.borderColor = 'var(--gold)';
+  el.style.color = 'var(--gold)';
+  ccCalcTotal();
+}
+
+function ccToggleTopping(idx, topping, el) {
+  const toppingsList = cc.pizzas[idx].toppings;
+  const isSelected = toppingsList.includes(topping);
+
+  if (isSelected) {
+    toppingsList.splice(toppingsList.indexOf(topping), 1);
+    el.style.background = 'rgba(255,255,255,0.04)';
+    el.style.borderColor = 'var(--border)';
+    el.style.color = 'var(--muted2)';
+  } else {
+    if (toppingsList.length < 3) {
+      toppingsList.push(topping);
+      el.style.background = 'rgba(245,166,35,0.15)';
+      el.style.borderColor = 'var(--gold)';
+      el.style.color = 'var(--gold)';
+    } else {
+      showToast('⚠️ Max 3 free toppings per pizza', 'warning');
+      return;
+    }
+  }
+  ccCalcTotal();
+}
+
+function ccAdjustWings(delta) {
+  cc.wings = Math.max(0, cc.wings + delta);
+  document.getElementById('cc-wings-input').value = cc.wings;
+  const priceEl = document.getElementById('cc-wings-price');
+  if (priceEl) priceEl.textContent = cc.wings + ' wings × $1.00 = $' + (cc.wings * 1.0).toFixed(2);
+  const optsEl = document.getElementById('cc-wings-opts');
+  if (optsEl) optsEl.style.display = cc.wings > 0 ? 'block' : 'none';
+  ccCalcTotal();
+}
+
+function ccSetWingsCount(val) {
+  cc.wings = Math.max(0, parseInt(val) || 0);
+  const priceEl = document.getElementById('cc-wings-price');
+  if (priceEl) priceEl.textContent = cc.wings + ' wings × $1.00 = $' + (cc.wings * 1.0).toFixed(2);
+  const optsEl = document.getElementById('cc-wings-opts');
+  if (optsEl) optsEl.style.display = cc.wings > 0 ? 'block' : 'none';
+  ccCalcTotal();
+}
+
+function ccSetWingSauce(sauce, el) {
+  cc.wingSauce = sauce;
+  document.querySelectorAll('.cc-wing-sauce-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.04)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(232,32,26,0.15)';
+  el.style.borderColor = 'rgba(232,32,26,0.3)';
+  el.style.color = '#fff';
+}
+
+function ccSetWingStyle(style, el) {
+  cc.wingStyle = style;
+  document.querySelectorAll('.cc-wing-style-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.04)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted2)';
+  });
+  el.style.background = 'rgba(232,32,26,0.15)';
+  el.style.borderColor = 'rgba(232,32,26,0.3)';
+  el.style.color = '#fff';
+}
+
+function ccAdjustPop(flavor, delta) {
+  cc.pops[flavor] = Math.max(0, cc.pops[flavor] + delta);
+  const els = document.querySelectorAll('.cc-pop-qty');
+  els.forEach(el => {
+    if (el.dataset.flavor === flavor) el.textContent = cc.pops[flavor];
+  });
+  const total = Object.values(cc.pops).reduce((a, b) => a + b, 0);
+  const totalEl = document.getElementById('cc-pop-total');
+  if (totalEl) totalEl.textContent = `Total: ${total} bottles = $${(total * 3.0).toFixed(2)}`;
+  ccCalcTotal();
+}
+
+function ccAdjustSide(item, delta) {
+  cc[item] = Math.max(0, cc[item] + delta);
+  const els = document.querySelectorAll('.cc-side-qty');
+  els.forEach(el => {
+    if (el.dataset.item === item) el.textContent = cc[item];
+  });
+  ccCalcTotal();
+}
+
+function ccAdjustDip(flavor, delta) {
+  cc.dips[flavor] = Math.max(0, cc.dips[flavor] + delta);
+  const els = document.querySelectorAll('.cc-dip-qty');
+  els.forEach(el => {
+    if (el.dataset.dip === flavor) el.textContent = cc.dips[flavor];
+  });
+  const total = Object.values(cc.dips).reduce((a, b) => a + b, 0);
+  const totalEl = document.getElementById('cc-dip-total');
+  if (totalEl) totalEl.textContent = `Total: ${total} dips = $${(total * 1.0).toFixed(2)}`;
+  ccCalcTotal();
+}
+
+function ccCalcTotal() {
+  let total = 0;
+
+  // Pizzas
+  cc.pizzas.forEach(p => {
+    total += ccPricing.pizza[cc.pizzaSize];
+    if (p.crust.includes('+$3')) total += 3.0;
+    if (p.cheese.includes('+$1.50')) total += 1.50;
+    if (p.cheese.includes('+$1')) total += 1.0;
+    if (p.cheese.includes('+$2')) total += 2.0;
+  });
+
+  // Wings
+  total += cc.wings * ccPricing.wingPerPiece;
+
+  // Pops
+  const popTotal = Object.values(cc.pops).reduce((a, b) => a + b, 0);
+  total += popTotal * ccPricing.pop;
+
+  // Sides
+  total += cc.cheesy * ccPricing.cheesy;
+  total += cc.garlic * ccPricing.garlic;
+  total += cc.wedges * ccPricing.wedges;
+
+  // Dips
+  const dipTotal = Object.values(cc.dips).reduce((a, b) => a + b, 0);
+  total += dipTotal * ccPricing.dip;
+
+  // Update UI
+  const totalEl = document.getElementById('cc-total');
+  if (totalEl) totalEl.textContent = '$' + total.toFixed(2);
+
+  const btn = document.getElementById('cc-add-btn');
+  if (btn) {
+    const hasItems = total > 0;
+    btn.style.opacity = hasItems ? '1' : '0.4';
+    btn.style.pointerEvents = hasItems ? 'all' : 'none';
+  }
+
+  // Feeds estimate
+  const feeds = cc.pizzas.length * 4 + Math.floor(cc.wings / 5);
+  const feedsEl = document.getElementById('cc-feeds-est');
+  if (feedsEl) {
+    feedsEl.textContent = feeds > 0 ? `Feeds ${feeds}–${Math.ceil(feeds * 1.3)} people` : 'Select items above';
+  }
+
+  // Summary
+  const summaryEl = document.getElementById('cc-summary');
+  if (summaryEl) {
+    if (total === 0) {
+      summaryEl.innerHTML = '<div style="text-align:center;color:var(--muted2);">Build your package above</div>';
+    } else {
+      let html = '';
+      if (cc.pizzas.length > 0) html += `<div><strong>${cc.pizzas.length}× ${cc.pizzaSize} Pizza${cc.pizzas.length > 1 ? 's' : ''}</strong></div>`;
+      if (cc.wings > 0) html += `<div>${cc.wings} Wings (${cc.wingSauce})</div>`;
+      const popTot = Object.values(cc.pops).reduce((a, b) => a + b, 0);
+      if (popTot > 0) html += `<div>${popTot}× 2L Pop</div>`;
+      if (cc.cheesy > 0) html += `<div>${cc.cheesy}× Cheesy Bread</div>`;
+      if (cc.garlic > 0) html += `<div>${cc.garlic}× Garlic Bread</div>`;
+      if (cc.wedges > 0) html += `<div>${cc.wedges}× Potato Wedges</div>`;
+      const dipTot = Object.values(cc.dips).reduce((a, b) => a + b, 0);
+      if (dipTot > 0) html += `<div>${dipTot}× Dips</div>`;
+      if (document.getElementById('cc-plates')?.checked) html += '<div>Plates & Napkins</div>';
+      if (document.getElementById('cc-utensils')?.checked) html += '<div>Serving Utensils</div>';
+      summaryEl.innerHTML = html;
+    }
+  }
+}
+
+function ccSetPizzaMode(mode) {
+  cc.quickMode = (mode === 'quick');
+  const customBtn = document.getElementById('cc-mode-custom');
+  const quickBtn = document.getElementById('cc-mode-quick');
+  const quickDiv = document.getElementById('cc-quick-order');
+  const cardsDiv = document.getElementById('cc-pizza-cards');
+
+  if (cc.quickMode) {
+    quickBtn.style.background = 'rgba(74,222,128,0.15)';
+    quickBtn.style.color = '#4ADE80';
+    customBtn.style.background = 'transparent';
+    customBtn.style.color = 'var(--muted2)';
+    if (quickDiv) quickDiv.style.display = 'block';
+    if (cardsDiv) cardsDiv.style.display = 'none';
+  } else {
+    customBtn.style.background = 'rgba(245,166,35,0.15)';
+    customBtn.style.color = 'var(--gold)';
+    quickBtn.style.background = 'transparent';
+    quickBtn.style.color = 'var(--muted2)';
+    if (quickDiv) quickDiv.style.display = 'none';
+    if (cardsDiv) cardsDiv.style.display = 'flex';
+  }
+}
+
+function ccQuickAdjust(type, delta) {
+  cc.quickPizzas[type] = Math.max(0, (cc.quickPizzas[type] || 0) + delta);
+  const el = document.getElementById('cc-quick-' + type);
+  if (el) el.value = cc.quickPizzas[type];
+  ccSyncQuickPizzas();
+}
+
+function ccQuickSet(type, val) {
+  cc.quickPizzas[type] = Math.max(0, parseInt(val) || 0);
+  const el = document.getElementById('cc-quick-' + type);
+  if (el) el.value = cc.quickPizzas[type];
+  ccSyncQuickPizzas();
+}
+
+function ccSyncQuickPizzas() {
+  // Calculate total pizzas from quick selections
+  const total = (cc.quickPizzas.pepperoni || 0) + (cc.quickPizzas.halalpep || 0) + (cc.quickPizzas.cheese || 0);
+
+  // Rebuild cc.pizzas from quick selections
+  cc.pizzas = [];
+  for (let i = 0; i < (cc.quickPizzas.pepperoni || 0); i++) {
+    cc.pizzas.push({crust: 'Hand Tossed', sauce: 'Classic Tomato', cheese: 'Regular Mozzarella', toppings: ['Pepperoni'], expanded: false});
+  }
+  for (let i = 0; i < (cc.quickPizzas.halalpep || 0); i++) {
+    cc.pizzas.push({crust: 'Hand Tossed', sauce: 'Classic Tomato', cheese: 'Regular Mozzarella', toppings: ['Halal Pep 🌙'], expanded: false});
+  }
+  for (let i = 0; i < (cc.quickPizzas.cheese || 0); i++) {
+    cc.pizzas.push({crust: 'Hand Tossed', sauce: 'Classic Tomato', cheese: 'Regular Mozzarella', toppings: [], expanded: false});
+  }
+
+  // Update counter
+  const qtyEl = document.getElementById('cc-pizza-qty');
+  if (qtyEl) qtyEl.value = total;
+
+  // Update quick summary
+  const summaryEl = document.getElementById('cc-quick-summary');
+  if (summaryEl) {
+    let parts = [];
+    if (cc.quickPizzas.pepperoni > 0) parts.push(cc.quickPizzas.pepperoni + ' Pepperoni');
+    if (cc.quickPizzas.halalpep > 0) parts.push(cc.quickPizzas.halalpep + ' Halal Pep');
+    if (cc.quickPizzas.cheese > 0) parts.push(cc.quickPizzas.cheese + ' Cheese');
+    summaryEl.textContent = total > 0 ? total + ' pizzas total: ' + parts.join(', ') : '';
+  }
+
+  ccCalcTotal();
+}
+
+function addCustomCateringToCart() {
+  const total = ccCalcTotal.toString().includes('$') ? parseFloat(document.getElementById('cc-total').textContent.slice(1)) : 0;
+  if (total === 0) {
+    showToast('⚠️ Add some items first', 'warning');
+    return;
+  }
+
+  let parts = [];
+  if (cc.pizzas.length > 0) {
+    // Kitchen summary: group by topping combo
+    var pizzaGroups = {};
+    cc.pizzas.forEach(function(p) {
+      var tops = p.toppings.length ? p.toppings.join(', ') : 'No toppings';
+      var grpKey = p.crust + ' | ' + p.sauce + ' | ' + p.cheese + ' | ' + tops;
+      pizzaGroups[grpKey] = (pizzaGroups[grpKey] || 0) + 1;
+    });
+    var pizzaSummary = Object.keys(pizzaGroups).map(function(k){return pizzaGroups[k]+'× '+k;}).join(' | ');
+    parts.push(cc.pizzas.length + '× ' + cc.pizzaSize + ' Pizzas: ' + pizzaSummary);
+  }
+  if (cc.wings > 0) parts.push(`${cc.wings} Wings (${cc.wingSauce}, ${cc.wingStyle})`);
+  const popTot = Object.values(cc.pops).reduce((a, b) => a + b, 0);
+  if (popTot > 0) {
+    const flavors = Object.entries(cc.pops).filter(([f, c]) => c > 0).map(([f, c]) => `${c}× ${f}`).join(', ');
+    parts.push(`${popTot}× 2L Pop: ${flavors}`);
+  }
+  if (cc.cheesy > 0) parts.push(`${cc.cheesy}× Cheesy Bread`);
+  if (cc.garlic > 0) parts.push(`${cc.garlic}× Garlic Bread`);
+  if (cc.wedges > 0) parts.push(`${cc.wedges}× Potato Wedges`);
+  const dipTot = Object.values(cc.dips).reduce((a, b) => a + b, 0);
+  if (dipTot > 0) {
+    const dipFlavors = Object.entries(cc.dips).filter(([f, c]) => c > 0).map(([f, c]) => `${c}× ${f}`).join(', ');
+    parts.push(`${dipTot}× Dips: ${dipFlavors}`);
+  }
+  if (document.getElementById('cc-plates')?.checked) parts.push('Plates & Napkins');
+  if (document.getElementById('cc-utensils')?.checked) parts.push('Serving Utensils');
+
+  const finalTotal = parseFloat(document.getElementById('cc-total').textContent.slice(1));
+  cart.push({id: Date.now(), name: '🎉 Custom Catering Package', detail: parts.join(' | '), price: finalTotal, emoji: '🎉', qty: 1});
+  renderCart();
+  showToast('🎉 Custom catering added!', 'success');
+
+  // Reset
+  cc.eventType = '';
+  cc.pizzaSize = 'Large';
+  cc.pizzaSizePrice = 16.99;
+  cc.pizzas = [];
+  cc.wings = 0;
+  cc.wingSauce = 'Hot';
+  cc.wingStyle = 'Sauce on Wings';
+  cc.pops = {Coke:0, 'Diet Coke':0, Sprite:0, 'Canada Dry':0, Pepsi:0, 'Orange Crush':0};
+  cc.cheesy = 0;
+  cc.garlic = 0;
+  cc.wedges = 0;
+  cc.dips = {'Creamy Garlic':0, Ranch:0, 'Cheddar Chipotle':0, Marinara:0, 'Hot Sauce':0, 'Honey Mustard':0, 'Blue Cheese':0};
+  cc.plates = false;
+  cc.utensils = false;
+  cc.quickMode = false;
+  cc.quickPizzas = {pepperoni: 0, halalpep: 0, cheese: 0};
+
+  document.getElementById('cc-pizza-qty').value = '0';
+  document.getElementById('cc-wings-input').value = '0';
+  document.getElementById('cc-wings-price').textContent = '0 wings × $1.00 = $0.00';
+  document.getElementById('cc-wings-opts').style.display = 'none';
+  document.getElementById('cc-pop-total').textContent = 'Total: 0 bottles = $0.00';
+  document.getElementById('cc-dip-total').textContent = 'Total: 0 dips = $0.00';
+  document.getElementById('cc-quick-pepperoni').value = '0';
+  document.getElementById('cc-quick-halalpep').value = '0';
+  document.getElementById('cc-quick-cheese').value = '0';
+  document.getElementById('cc-pizza-mode-toggle').style.display = 'none';
+  document.getElementById('cc-quick-order').style.display = 'none';
+  document.getElementById('cc-pizza-cards').style.display = 'flex';
+  document.querySelectorAll('.cc-pop-qty').forEach(el => el.textContent = '0');
+  document.querySelectorAll('.cc-side-qty').forEach(el => el.textContent = '0');
+  document.querySelectorAll('.cc-dip-qty').forEach(el => el.textContent = '0');
+  document.querySelectorAll('#cc-plates, #cc-utensils').forEach(el => el.checked = false);
+  ccRenderPizzaCards();
+  ccCalcTotal();
+}
+
+// Init
+updateBuilderProgress();
+updateBuilderPrice();
+renderAddressBlock();
+renderAccountPage();
+updateHomeLoyalty();
+updateFloatingCart();
+
+(function() {
+  var API='https://wonderful-griffin-e6e3b7.netlify.app/api';
+  function em(n){n=(n||'').toLowerCase();if(n.indexOf('wing')!==-1)return'\uD83C\uDF57';if(n.indexOf('pizza')!==-1||n.indexOf('combo')!==-1||n.indexOf('pack')!==-1)return'\uD83C\uDF55';if(n.indexOf('shawarma')!==-1)return'\uD83C\uDF2F';return'\uD83C\uDF55';}
+  window.renderReorderItems=function(items){var c=document.getElementById('reorder-list');if(!c)return;if(!items||!items.length){c.innerHTML='';return;}var h='',m=Math.min(items.length,4);for(var i=0;i<m;i++){var it=items[i],e=em(it.name),d=(it.detail||'').replace(/\n/g,' \u00B7 ').substring(0,60),p=it.price||0,q=it.qty||1;var ne=(it.name||'').replace(/'/g,"\\'"),de=d.replace(/'/g,"\\'"),ql=q>1?' \u00D7'+q:'';h+='<div class="reorder-item"><div class="reorder-emoji">'+e+'</div><div class="reorder-info"><div class="reorder-name">'+it.name+ql+'</div><div class="reorder-detail">'+d+'</div></div><button class="reorder-btn" onclick="quickAdd(\''+ne+'\',\''+de+'\','+p+',\''+e+'\')">+ Add</button></div>';}c.innerHTML=h;};
+  function loadH(ph){return fetch(API+'/orders?customer_phone='+encodeURIComponent(ph)+'&limit=3').then(function(r){return r.ok?r.json():null;}).then(function(data){if(!data||!data.orders||!data.orders.length)return null;var seen={},items=[];for(var o=0;o<data.orders.length;o++){var ois=data.orders[o].order_items||[];for(var j=0;j<ois.length;j++){var it=ois[j];if(!seen[it.name]){seen[it.name]=1;items.push({name:it.name,detail:(it.size||'').replace(/\n/g,' \u00B7 ').substring(0,60),price:it.price||0,qty:it.quantity||1});if(items.length>=4)break;}}if(items.length>=4)break;}return items.length?items:null;}).catch(function(){return null;});}
+  window.renderReorderSection=function(){try{var s=localStorage.getItem('sdp_customer');if(!s)return;var c=JSON.parse(s);if(!c||!c.phone)return;if(c.items&&c.items.length)window.renderReorderItems(c.items);loadH(c.phone).then(function(items){if(items&&items.length){window.renderReorderItems(items);c.items=items;localStorage.setItem('sdp_customer',JSON.stringify(c));}});}catch(e){}};
+  window.renderReorderSection();
+})();
+
+// === Expose key variables to window for tracker/promo ===
+(function(){
+  // Try direct references first
+  try { if(typeof _supaUrl !== 'undefined') window._supaUrl = _supaUrl; } catch(e){}
+  try { if(typeof _supaKey !== 'undefined') window._supaKey = _supaKey; } catch(e){}
+  try { if(typeof orderType !== 'undefined') window.orderType = orderType; } catch(e){}
+  // Fallback: extract from script source
+  if(!window._supaUrl || !window._supaKey){
+    var ss=document.querySelectorAll('script');
+    for(var i=0;i<ss.length;i++){
+      var tx=ss[i].textContent||'';
+      if(!window._supaUrl){var m=tx.match(/supaUrl\s*=\s*['"]([^'"]+)['"]/);if(m)window._supaUrl=m[1];}
+      if(!window._supaKey){var k=tx.match(/supaKey\s*=\s*['"]([^'"]+)['"]/);if(k)window._supaKey=k[1];}
+    }
+  }
+})();
+</script>
+</div><!-- /app -->
+
+<!-- FLOATING CART BAR (mobile) -->
+<div id="floating-cart" onclick="showPage('cart')">
+  <div class="fc-left">
+    <div class="fc-count" id="fc-count">0</div>
+    <div class="fc-label">View Cart</div>
+  </div>
+  <div class="fc-price" id="fc-price">$0.00</div>
+</div>
+
+<!-- DESKTOP SIDEBAR -->
+<div id="desktop-sidebar">
+  <!-- Store Info -->
+  <div class="ds-card">
+    <div class="ds-header">SUPER DEAL <span>PIZZA</span> <span style="font-size:13px;color:var(--muted2);font-family:'Barlow',sans-serif;font-weight:600;letter-spacing:0;">Milton, ON</span></div>
+    <div class="ds-store-info">
+      <div class="ds-open-badge"><span class="ds-open-dot"></span> Open Now</div>
+      <div class="ds-info-row"><span class="ds-info-icon">📍</span><span>15 Martin St, Milton, ON <b>L9T 2E7</b></span></div>
+      <div class="ds-info-row"><span class="ds-info-icon">📞</span><span><b>905-876-0222</b></span></div>
+      <div class="ds-info-row"><span class="ds-info-icon">🚗</span><span>Delivery: <b>30–50 min · $5.00</b></span></div>
+      <div class="ds-info-row"><span class="ds-info-icon">🏃</span><span>Pickup: <b>15–20 min · FREE</b></span></div>
+      <div class="ds-info-row"><span class="ds-info-icon">🌙</span><span>Halal options <b>available</b></span></div>
+    </div>
+    <a href="tel:9058760222" class="ds-cta-call">📞 Call to Order</a>
+  </div>
+
+  <!-- Cart Summary -->
+  <div class="ds-card" id="ds-cart-card">
+    <div class="ds-header">YOUR <span>ORDER</span></div>
+    <div id="ds-cart-preview" class="ds-cart-preview">
+      <div class="ds-cart-empty">🍕 Your cart is empty<br><span style="font-size:12px;">Add items to start your order</span></div>
+    </div>
+    <div class="ds-cart-footer" id="ds-cart-footer" style="display:none;">
+      <div class="ds-cart-total">
+        <span class="ds-cart-total-label">TOTAL</span>
+        <span class="ds-cart-total-price" id="ds-total-price">$0.00</span>
+      </div>
+      <button class="ds-checkout-btn" onclick="showPage('cart')">Go to Checkout →</button>
+    </div>
+  </div>
+
+  <!-- Hours -->
+  <div class="ds-card">
+    <div class="ds-header">HOURS</div>
+    <div class="ds-hours">
+      <div class="ds-hour-row"><span class="ds-hour-day">Monday – Thursday</span><span class="ds-hour-time">11am – 11pm</span></div>
+      <div class="ds-hour-row"><span class="ds-hour-day">Friday – Saturday</span><span class="ds-hour-time">11am – 12am</span></div>
+      <div class="ds-hour-row"><span class="ds-hour-day">Sunday</span><span class="ds-hour-time">12pm – 11pm</span></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /desktop-wrapper -->
+
+<!-- PAYMENT LOADING OVERLAY -->
+<div id="payment-loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(10,10,10,0.95);z-index:900;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+  <div style="width:70px;height:70px;border-radius:50%;background:rgba(34,181,74,0.15);border:3px solid rgba(34,181,74,0.4);display:flex;align-items:center;justify-content:center;font-size:32px;animation:pulse 1.5s ease-in-out infinite;">💳</div>
+  <div style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:24px;color:#fff;letter-spacing:1px;">Connecting to Stripe…</div>
+  <div style="font-size:14px;color:var(--muted2);text-align:center;max-width:300px;line-height:1.6;">You'll be redirected to a secure payment page.<br>Your order details are saved.</div>
+  <div style="display:flex;gap:6px;margin-top:8px;">
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:bounce 1.2s ease-in-out infinite;"></div>
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:bounce 1.2s ease-in-out 0.2s infinite;"></div>
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:bounce 1.2s ease-in-out 0.4s infinite;"></div>
+  </div>
+</div>
+<style>
+@keyframes bounce { 0%,80%,100%{transform:scale(0.8);opacity:.5} 40%{transform:scale(1.2);opacity:1} }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+</style>
+
+<div id="upsellPopOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:700;backdrop-filter:blur(4px);" onclick="closeUpsellPop()"></div>
+<div id="upsellPopSheet" style="display:none;position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(430px,100vw);background:#1a1a1a;border-radius:22px 22px 0 0;border-top:1px solid rgba(255,255,255,0.1);z-index:701;padding:20px 20px 36px;">
+  <div style="width:40px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 16px;"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div id="upsellPopTitle" style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;color:#fff;">Can of Pop</div>
+    <button onclick="closeUpsellPop()" style="background:rgba(255,255,255,0.08);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  <div style="font-size:13px;color:var(--muted2);margin-bottom:14px;">🥤 Choose your flavour</div>
+  <div id="upsellPopGrid" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+</div>
+
+<!-- UPSELL DIP PICKER -->
+<div id="upsellDipOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:700;backdrop-filter:blur(4px);" onclick="closeUpsellDip()"></div>
+<div id="upsellDipSheet" style="display:none;position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(430px,100vw);background:#1a1a1a;border-radius:22px 22px 0 0;border-top:1px solid rgba(255,255,255,0.1);z-index:701;padding:20px 20px 36px;">
+  <div style="width:40px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 16px;"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;color:#fff;">🫙 Dipping Sauce</div>
+    <button onclick="closeUpsellDip()" style="background:rgba(255,255,255,0.08);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  <div style="font-size:13px;color:var(--muted2);margin-bottom:14px;">Pick one — $1.00 each</div>
+  <div style="display:flex;flex-direction:column;gap:10px;">
+    <div onclick="upsellPickDip('Creamy Garlic')" style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;border:1.5px solid var(--border);background:rgba(255,255,255,0.04);cursor:pointer;transition:all .15s;" onmousedown="this.style.borderColor='var(--red)'" onmouseup="this.style.borderColor='var(--border)'">
+      <span style="font-size:22px;">🧄</span>
+      <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;color:#fff;">Creamy Garlic</div><div style="font-size:12px;color:var(--muted2);">Rich house-made garlic sauce</div></div>
+    </div>
+    <div onclick="upsellPickDip('Ranch')" style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;border:1.5px solid var(--border);background:rgba(255,255,255,0.04);cursor:pointer;transition:all .15s;" onmousedown="this.style.borderColor='var(--red)'" onmouseup="this.style.borderColor='var(--border)'">
+      <span style="font-size:22px;">🌿</span>
+      <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;color:#fff;">Ranch</div><div style="font-size:12px;color:var(--muted2);">Cool and creamy ranch</div></div>
+    </div>
+    <div onclick="upsellPickDip('Cheddar Chipotle')" style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;border:1.5px solid var(--border);background:rgba(255,255,255,0.04);cursor:pointer;transition:all .15s;" onmousedown="this.style.borderColor='var(--red)'" onmouseup="this.style.borderColor='var(--border)'">
+      <span style="font-size:22px;">🧡</span>
+      <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;color:#fff;">Cheddar Chipotle</div><div style="font-size:12px;color:var(--muted2);">Smoky, spicy cheddar dip</div></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
+ + total.toFixed(2);
     showToast('❌ Payment failed: ' + err.message + '. Please call us to order.', 'red');
     console.error('Order error:', err);
   }}
