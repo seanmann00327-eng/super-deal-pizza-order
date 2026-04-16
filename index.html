@@ -1,4 +1,4 @@
-h<!DOCTYPE hthml>
+hh<!DOCTYPE hthml>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -17,7 +17,7 @@ h<!DOCTYPE hthml>
 <link rel="canonical" href="https://superdealpizza.ca">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <meta name="geo.region" content="CA-ON">
-<meta name="geo.placename" content="Milton, Ontario">
+<meta name="geo.placename" content="Milton, Ontario">h
 <meta name="geo.position" content="43.5183;-79.8774">
 <meta name="ICBM" content="43.5183, -79.8774">h
 
@@ -6396,14 +6396,14 @@ function switchAuthTab(tab) {
       ${inp('su-email','Email Address','email','email')}
       ${inp('su-phone','Phone Number (optional)','tel','tel')}
       ${inp('su-pass','Password (min 6 chars)','password','new-password')}
-      <button onclick="doSignup()" style="width:100%;padding:15px;background:var(--red);color:#fff;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:2px;border-radius:12px;cursor:pointer;margin-top:4px;box-shadow:0 4px 20px rgba(232,32,26,0.4);">Create My Account 🍕</button>
+      <button id="su-btn" onclick="doSignup()" style="width:100%;padding:15px;background:var(--red);color:#fff;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:2px;border-radius:12px;cursor:pointer;margin-top:4px;box-shadow:0 4px 20px rgba(232,32,26,0.4);">Create My Account 🍕</button>
       <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted2);">Already have an account? <span onclick="switchAuthTab('login')" style="color:var(--gold);cursor:pointer;font-weight:700;">Sign in →</span></div>`;
   } else {
     area.innerHTML = `
       <div id="auth-err" style="display:none;background:rgba(232,32,26,0.15);border:1px solid rgba(232,32,26,0.4);border-radius:10px;padding:10px 14px;font-size:13px;color:#ff6b6b;margin-bottom:12px;"></div>
       ${inp('li-email','Email Address','email','email')}
       ${inp('li-pass','Password','password','current-password')}
-      <button onclick="doLogin()" style="width:100%;padding:15px;background:var(--red);color:#fff;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:2px;border-radius:12px;cursor:pointer;margin-top:4px;box-shadow:0 4px 20px rgba(232,32,26,0.4);">Sign In →</button>
+      <button id="li-btn" onclick="doLogin()" style="width:100%;padding:15px;background:var(--red);color:#fff;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:2px;border-radius:12px;cursor:pointer;margin-top:4px;box-shadow:0 4px 20px rgba(232,32,26,0.4);">Sign In →</button>
       <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted2);">No account yet? <span onclick="switchAuthTab('signup')" style="color:var(--gold);cursor:pointer;font-weight:700;">Create one →</span></div>`;
   }
 }
@@ -6413,51 +6413,118 @@ function authErr(msg) {
   el.textContent = '⚠ ' + msg;
   el.style.display = 'block';
 }
-function doSignup() {
-  const name  = document.getElementById('su-name').value.trim();
-  const email = document.getElementById('su-email').value.trim().toLowerCase();
-  const pass  = document.getElementById('su-pass').value;
-  const phone = document.getElementById('su-phone').value.trim();
-  if (!name)            { authErr('Please enter your name'); return; }
-  if (!email || !email.includes('@')) { authErr('Enter a valid email'); return; }
-  if (pass.length < 6)  { authErr('Password must be at least 6 characters'); return; }
-  if (ACCOUNTS_DB[email]) { authErr('An account with that email already exists'); return; }
-  const user = {name, email, pass, phone,
-    joinDate: new Date().toLocaleDateString('en-CA'),
-    stamps:0, points:50, orderHistory:[], savedAddress:null, totalSpent:0};
-  ACCOUNTS_DB[email] = user;
-  currentUser = user;
-  closeAuthModal();
-  onLogin();
-  showToast('🎉 Welcome, ' + name.split(' ')[0] + '! Account created with 50 bonus points!');
+/* ── Auth: SHA-256 password helper ── */
+async function _hashPwd(pw){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
-function doLogin() {
-  const email = document.getElementById('li-email').value.trim().toLowerCase();
-  const pass  = document.getElementById('li-pass').value;
-  const user  = ACCOUNTS_DB[email];
-  if (!user)           { authErr('No account found with that email'); return; }
-  if (user.pass !== pass) { authErr('Incorrect password'); return; }
-  currentUser = user;
-  closeAuthModal();
-  onLogin();
-  showToast('👋 Welcome back, ' + user.name.split(' ')[0] + '!');
+
+/* ── Sign Up ── */
+async function doSignup(){
+  var n = document.getElementById('su-name').value.trim();
+  var e = document.getElementById('su-email').value.trim().toLowerCase();
+  var ph = document.getElementById('su-phone').value.trim();
+  var pw = document.getElementById('su-pass').value;
+  if(!n){ authErr('Please enter your name.'); return; }
+  if(!e||!e.includes('@')){ authErr('Please enter a valid email.'); return; }
+  if(pw.length<6){ authErr('Password must be at least 6 characters.'); return; }
+  authErr('');
+  var btn = document.getElementById('su-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Creating account…'; }
+  try{
+    /* check if email already exists */
+    var chk = await fetch(window._supaUrl+'/rest/v1/customers?email=eq.'+encodeURIComponent(e)+'&select=id', {
+      headers:{'apikey':window._supaKey,'Authorization':'Bearer '+window._supaKey}
+    });
+    var existing = await chk.json();
+    if(existing && existing.length>0){ authErr('An account with this email already exists. Please sign in.'); if(btn){btn.disabled=false;btn.textContent='Create My Account \ud83c\udf55';} return; }
+    /* hash password */
+    var hash = await _hashPwd(pw);
+    /* create customer record */
+    var body = { name:n, email:e, phone:ph||null, password_hash:hash, total_orders:0, total_spent:0, is_active:true, loyalty_stamps:0, loyalty_points:50, last_order_at:null };
+    var resp = await fetch(window._supaUrl+'/rest/v1/customers', {
+      method:'POST',
+      headers:{'apikey':window._supaKey,'Authorization':'Bearer '+window._supaKey,'Content-Type':'application/json','Prefer':'return=representation'},
+      body:JSON.stringify(body)
+    });
+    if(!resp.ok){ var err=await resp.text(); throw new Error(err); }
+    var rows = await resp.json();
+    var cust = rows[0];
+    /* build local user */
+    currentUser = { id:cust.id, name:cust.name, email:cust.email, phone:cust.phone||'', stamps:cust.loyalty_stamps||0, points:cust.loyalty_points||50, totalSpent:0, orderHistory:[], savedAddress:null, joinDate:new Date().toLocaleDateString('en-US',{month:'short',year:'numeric'}) };
+    _persistSession();
+    closeAuthModal();
+    onLogin();
+    showToast('Welcome, '+n.split(' ')[0]+'! \ud83c\udf89 You earned 50 bonus points.');
+  }catch(ex){
+    console.error('Signup error',ex);
+    authErr('Something went wrong. Please try again.');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Create My Account \ud83c\udf55';}
+  }
 }
-function signOut() {
-  currentUser = null;
+
+/* ── Sign In ── */
+async function doLogin(){
+  var e = document.getElementById('li-email').value.trim().toLowerCase();
+  var pw = document.getElementById('li-pass').value;
+  if(!e||!pw){ authErr('Please enter email and password.'); return; }
+  authErr('');
+  var btn = document.getElementById('li-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Signing in…'; }
+  try{
+    var hash = await _hashPwd(pw);
+    var resp = await fetch(window._supaUrl+'/rest/v1/customers?email=eq.'+encodeURIComponent(e)+'&select=*', {
+      headers:{'apikey':window._supaKey,'Authorization':'Bearer '+window._supaKey}
+    });
+    var rows = await resp.json();
+    if(!rows||rows.length===0){ authErr('No account found with this email.'); if(btn){btn.disabled=false;btn.textContent='Sign In \ud83d\udd13';} return; }
+    var cust = rows[0];
+    if(!cust.password_hash){ authErr('This account was created before passwords were enabled. Please sign up again with the same email, or contact us.'); if(btn){btn.disabled=false;btn.textContent='Sign In \ud83d\udd13';} return; }
+    if(cust.password_hash !== hash){ authErr('Incorrect password. Please try again.'); if(btn){btn.disabled=false;btn.textContent='Sign In \ud83d\udd13';} return; }
+    /* build local user from DB */
+    currentUser = { id:cust.id, name:cust.name, email:cust.email, phone:cust.phone||'', stamps:cust.loyalty_stamps||0, points:cust.loyalty_points||0, totalSpent:cust.total_spent||0, orderHistory:[], savedAddress:null, joinDate: cust.created_at ? new Date(cust.created_at).toLocaleDateString('en-US',{month:'short',year:'numeric'}) : '' };
+    _persistSession();
+    closeAuthModal();
+    onLogin();
+    showToast('Welcome back, '+cust.name.split(' ')[0]+'! \ud83d\udc4b');
+  }catch(ex){
+    console.error('Login error',ex);
+    authErr('Something went wrong. Please try again.');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Sign In \ud83d\udd13';}
+  }
+}
+
+/* ── Sign Out ── */
+function signOut(){
+  currentUser=null;
+  localStorage.removeItem('sdp_session');
   renderAccountPage();
   updateHomeLoyalty();
-  showToast('Signed out. See you soon! 🍕');
+  showToast('Signed out successfully.');
 }
-function onLogin() {
-  // Auto-fill saved address
-  if (currentUser.savedAddress) {
-    const a = currentUser.savedAddress;
-    Object.assign(deliveryAddress, a);
-    deliveryAddress._ts = deliveryAddress._tc = deliveryAddress._tp = true;
-  }
+
+/* ── On Login (update UI) ── */
+function onLogin(){
+  if(currentUser && currentUser.savedAddress) Object.assign(deliveryAddr, currentUser.savedAddress);
   renderAccountPage();
   updateHomeLoyalty();
   renderAddressBlock();
+}
+
+/* ── Session persistence helpers ── */
+function _persistSession(){
+  if(!currentUser) return;
+  localStorage.setItem('sdp_session', JSON.stringify(currentUser));
+}
+function _restoreSession(){
+  try{
+    var s = localStorage.getItem('sdp_session');
+    if(!s) return;
+    currentUser = JSON.parse(s);
+    onLogin();
+  }catch(e){ localStorage.removeItem('sdp_session'); }
 }
 
 function renderAccountPage() {
@@ -6672,6 +6739,7 @@ function awardStamp() {
   currentUser.stamps++;
   updateHomeLoyalty();
   renderAccountPage();
+  _persistSession();
 }
 
 // Redeem a reward with points
@@ -6683,6 +6751,7 @@ function redeemReward(pts) {
   const rewardName = pts === 100 ? 'Cheesy Bread' : pts === 200 ? 'Free Pizza' : 'Medium 3-Top + Dip';
   showToast('🎉 ' + rewardName + ' reward applied to your next order!', 'success');
   renderAccountPage();
+  _persistSession();
 }
 
 // ══════════════════════════════════
@@ -7370,6 +7439,7 @@ function addCustomCateringToCart() {
 updateBuilderProgress();
 updateBuilderPrice();
 renderAddressBlock();
+_restoreSession();
 renderAccountPage();
 updateHomeLoyalty();
 updateFloatingCart();
